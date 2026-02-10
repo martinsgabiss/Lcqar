@@ -149,6 +149,8 @@ geracao_termica_diaria['fator_diario'] = (
 #check - tem que dar 1
 geracao_termica_diaria.groupby('ano')['fator_diario'].sum()
 
+
+mexi aqui tem que corrigir
 # ----------- a média dos fatores
 
 media_hora = all_termica.groupby(all_termica.index.hour)['val_geracao'].mean()
@@ -437,6 +439,23 @@ ax.grid(True, which='both', alpha=0.3)
 plt.show()
 
 #%%
+df_hora['horario'] = df_hora['hora'].dt.hour
+
+# Agrupa calculando média, percentil 5 e percentil 95
+df_hora_agrupado = geracao_termica_horaria.groupby('hora')['fator_horario'].agg(
+    fator_horario='mean',
+    p05=lambda x: x.quantile(0.05),
+    p95=lambda x: x.quantile(0.95)
+).reset_index()
+
+# Calcula o relativo baseado na média
+df_hora_agrupado['fator_horario_relativo'] = df_hora_agrupado['fator_horario'] / df_hora_agrupado['fator_horario'].sum()
+df_hora_agrupado['fator_horario_p05_relativo'] = df_hora_agrupado['p05'] / df_hora_agrupado['p05'].sum()
+df_hora_agrupado['fator_horario_p95_relativo'] = df_hora_agrupado['p95'] / df_hora_agrupado['p95'].sum()
+
+print(df_hora_agrupado.groupby('hora')['fator_horario_relativo'].sum())
+
+
 #os 3 juntos
 
 # fig, axs = plt.subplots(3, 1, figsize=(11, 10), sharey=False)

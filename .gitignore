@@ -1,6 +1,4 @@
-# Ignorar pastas de figuras, entradas e saídas
-/dados
-/figuras
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -3,7 +3,7 @@
 Foram elaborados fatores de desagregação temporal diário, semanal, mensal e
 horário, a partir da normalização anual da geração elétrica, preservando a
 massa anual e refletindo o perfil operacional das usinas termelétricas. Além 
-disso plots para avaliar a sazonalidade e comportamento dessa geração
+de plots para avaliar a sazonalidade e comportamento dessa geração.
  
 """
 
@@ -18,7 +18,8 @@ import os
 #%% Leitura dos csv e somatória por hora
 
 # Caminho para os arquivos CSV
-path = '/home/bruno/Gabriela/dados'
+path = '/home/bruno/Gabriela/Lcqar/inputs/dadostermeletricas'
+
 files = glob.glob(os.path.join(path, "*.csv"))
 
 # Lista para armazenar os DataFrames
@@ -31,7 +32,7 @@ for file in files:
 # Concatena todos os DataFrames em um só
 all_df = pd.concat(df_list, ignore_index=True)
 
-#all_df['nom_tipousina'].unique()
+#all_df['nom_tipousina'].unique() #me fala os valores unicos da coluna
 
 # Filtrando para térmica
 all_termica = all_df [all_df['nom_tipousina'] == 'TÉRMICA']
@@ -45,13 +46,13 @@ all_termica['din_instante'] = pd.to_datetime(all_termica['din_instante'])
 # Colocando como índice
 all_termica = all_termica.set_index('din_instante')
 
-#print(all_termica.head())
-#print(all_termica.columns)
+#print(all_termica.head()) #mostra a estrutura do dataframe, priemiras linhas
+#print(all_termica.columns) #nome das colunas
 
 # Tirando colunas não úteis
 all_termica = all_termica.drop(columns=['id_subsistema', 'nom_subsistema', 
                                         'id_estado', 'id_ons'])
-#all_termica['val_geracao'].dtype
+#all_termica['val_geracao'].dtype 
 
 # Somando a cada dia, por hora em comum de geração
 geracao_termica_horaria = (
@@ -61,6 +62,8 @@ geracao_termica_horaria = (
 )
 
 #%% Plotagem sazonalidade 
+
+fig_path = "/home/bruno/Gabriela/Lcqar/figuras"
 
 fig, ax = plt.subplots(figsize=(14, 5))
 
@@ -97,9 +100,10 @@ ax.set_title('Geração horária - Usinas termelétricas (2017–2024)')
 fig.subplots_adjust(left=0.12)
 
 #plt.tight_layout()
+plt.savefig(os.path.join(fig_path,'Geração horária (2017-2024).png'),dpi=300)
 plt.show()
 
-#%% Fatores de desagregação temporal 
+#%% FATORES DE DESAGREGAÇÃO TEMPORAL - "geracao da linha pela anual"
 
 geracao_termica_horaria['ano'] = geracao_termica_horaria.index.year
 geracao_termica_horaria['mes'] = geracao_termica_horaria.index.month
@@ -107,21 +111,23 @@ geracao_termica_horaria['hora'] = geracao_termica_horaria.index.hour
 geracao_termica_horaria['data'] = geracao_termica_horaria.index.date
 geracao_termica_horaria['semana'] = geracao_termica_horaria.index.isocalendar().week
 
-# Soma anual da geração
+# Soma anual da geração de energia
 geracao_anual = (
     geracao_termica_horaria
     .groupby('ano')['val_geracao']
     .sum()
     .rename('geracao_total_ano')
-)
+) 
+#acho que dava para fazer com o RESAMPLE
 
-#%% Fator desagregação horário
+#%% Fator desagregação - POR HORA
 
 geracao_termica_horaria['geracao_total_ano'] = (
     geracao_termica_horaria['ano']
-    .map(geracao_anual)
+    .map(geracao_anual) #.map() localiza e associa valores
 )
 
+# O FATOR:
 geracao_termica_horaria['fator_horario'] = (
     geracao_termica_horaria['val_geracao'] / geracao_termica_horaria['geracao_total_ano']
 )
@@ -138,7 +144,9 @@ geracao_termica_diaria = (
 )
 
 geracao_termica_diaria = geracao_termica_diaria.merge(geracao_anual, on='ano')
+# O .merge() faz o join com entre dois dataframes
 
+# O FATOR:
 geracao_termica_diaria['fator_diario'] = (
     geracao_termica_diaria['val_geracao'] / geracao_termica_diaria['geracao_total_ano']
 )
@@ -173,6 +181,7 @@ geracao_termica_mensal = (
 
 geracao_termica_mensal = geracao_termica_mensal.merge(geracao_anual, on='ano')
 
+# O FATOR:
 geracao_termica_mensal['fator_mensal'] = (
     geracao_termica_mensal['val_geracao'] / geracao_termica_mensal['geracao_total_ano']
 )
@@ -218,7 +227,8 @@ geracao_termica_mensal.to_csv(
     index=False
 )
 
-#%% 
+#%% PLOTS USANDO OS VALORES MÉDIOS DE GERAÇÃO DE ENERGIA
+
 # -----------Plot média hora------------
 
 grp_hora = all_termica.groupby(all_termica.index.hour)['val_geracao']
@@ -246,6 +256,8 @@ ax.set_ylabel('Geração [MW]')
 ax.set_xticks(range(0, 24))
 ax.legend()
 ax.grid(alpha=0.3)
+
+plt.savefig(os.path.join(fig_path,'Analise Horaria pela Geracao.png'),dpi=300)
 
 plt.show()
 
@@ -276,6 +288,8 @@ ax.set_ylabel('Geração [MW]')
 ax.set_title('Dias da semana')
 ax.legend()
 ax.grid(True, which='both', alpha=0.3)
+
+plt.savefig(os.path.join(fig_path,'Analise Dias da Semana pela Geracao.png'),dpi=300)
 
 plt.show()
 
@@ -309,10 +323,12 @@ ax.set_title('Mês')
 ax.legend()
 ax.grid(alpha=0.3)
 
+plt.savefig(os.path.join(fig_path,'Analise Mensal pela Geracao.png'),dpi=300)
+
 plt.show()
 
 
-#%%com escala log
+#%% TESTANDO com escala log
 
 #----horaria log
 grp_hora = all_termica.groupby(all_termica.index.hour)['val_geracao']
@@ -417,7 +433,7 @@ plt.show()
 
 #%% Perfil horário relativo - PLOT
 
-df_hora = geracao_termica_horaria.copy()
+df_hora = geracao_termica_horaria.copy() #mudei aqui o nome para conseguir comparar melhor com o código do gabriel
 
 # Agrupa calculando média, percentil 5 e percentil 95
 df_hora_agrupado = df_hora.groupby('hora')['fator_horario'].agg(
@@ -440,7 +456,7 @@ plt.xticks(range(0, 24))
 plt.grid(True, linestyle='--', alpha=0.6)
 plt.legend()
 plt.tight_layout()
-#plt.savefig(os.path.join(fig_path,'Perfil Horário do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil Horário do fator relativo.png'),dpi=300)
 plt.show()
 
 df_hora_agrupado['fator_horario_relativo'].sum()
@@ -472,7 +488,7 @@ plt.ylabel('Fator Relativo')
 plt.xticks(range(0, 24))
 plt.legend()
 plt.grid(True, linestyle='--', alpha=0.3)
-#plt.savefig(os.path.join(fig_path,'Perfil Horário Interanual do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil Horário Interanual do fator relativo.png'),dpi=300)
 plt.show()
 
 #%% Perfil DIAS DA SEMANA - fator relativo - PLOT
@@ -515,7 +531,7 @@ plt.grid(True, axis='y', linestyle=':', alpha=0.7)
 plt.legend()
 plt.tight_layout()
 
-#plt.savefig(os.path.join(fig_path,'Perfil dos dias da semana do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil dos dias da semana do fator relativo.png'),dpi=300)
 plt.show()
 
 # GRÁFICO COM A VARIAÇÃO DOS ANOS - PERFIL DIAS DA SEMANA
@@ -537,7 +553,7 @@ plt.plot(df_semana_agrupado['dia_semana_num'], df_semana_agrupado['rel_medio'],
 plt.xticks(ticks=range(7), labels=[dias_nomes[i] for i in range(7)])
 plt.title('Perfil Semanal: Variação entre Anos (2017-2024)')
 plt.legend()
-#plt.savefig(os.path.join(fig_path,'Perfil dos dias da semana interanual do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil dos dias da semana interanual do fator relativo.png'),dpi=300)
 plt.show()
 
 #%% Perfil mensal do fator relativo - PLOT
@@ -574,7 +590,7 @@ plt.grid(True, linestyle=':', alpha=0.6)
 plt.legend(loc='upper right')
 plt.tight_layout()
 
-#plt.savefig(os.path.join(fig_path,'Perfil mensal do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil mensal do fator relativo.png'),dpi=300)
 plt.show()
 
 # GRÁFICO COM A VARIAÇÃO DOS ANOS - PERFIL mensal
@@ -595,5 +611,5 @@ plt.title('Sazonalidade Mensal: Variação entre Anos (2017-2024)')
 plt.xticks(range(1, 13))
 plt.legend()
 
-#plt.savefig(os.path.join(fig_path,'Perfil mensal interanual do fator relativo.png'),dpi=300)
+plt.savefig(os.path.join(fig_path,'Perfil mensal interanual do fator relativo.png'),dpi=300)
 plt.show()

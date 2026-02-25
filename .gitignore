@@ -3,6 +3,8 @@
 outputs/
 figuras/
 inputs/
+venv/ 
+vendor/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

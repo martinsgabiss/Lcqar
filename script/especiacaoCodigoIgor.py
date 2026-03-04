@@ -13,7 +13,7 @@ import pandas as pd
 from speciate_to_cmaq import SpeciateToCMAQ as Speciator
 
 df = pd.read_csv("/home/bruno/Downloads/emission_total_light_v2.csv")
-dfprofile =pd.read_csv("/home/bruno/Downloads/InventorySpeciate_association.xlsx - Association_v2 (1).csv")
+dfprofile =pd.read_csv("/home/bruno/Downloads/InventorySpeciate_association.xlsx - Association_v2.csv")
 
 # Init object
 my_speciator = Speciator()
@@ -81,6 +81,29 @@ gas_wide = gas_all.pivot_table(
 ).reset_index()
 
 
+#---------- teste merge
+
+dfprofile['PROFILE_GAS'] = dfprofile['PROFILE_GAS'].astype(str).str.strip()
+gas_wide['profile_codigo'] = gas_wide['profile_codigo'].astype(str).str.strip()
+pm_wide['profile_codigo'] = pm_wide['profile_codigo'].astype(str).str.strip()
+
+df_gas = dfprofile.merge(
+    gas_wide,
+    left_on='PROFILE_GAS',
+    right_on='profile_codigo',
+    how='left'
+).drop(columns='profile_codigo')
+
+df_gas.to_csv("/home/bruno/Gabriela/Lcqar/outputs/speciateAssociationProfilesGas.csv", index=False)
+
+df_pm = dfprofile.merge(
+    pm_wide,
+    left_on='PROFILE_PM',
+    right_on='profile_codigo',
+    how='left'
+).drop(columns='profile_codigo')
+
+df_pm.to_csv("/home/bruno/Gabriela/Lcqar/outputs/speciateAssociationProfilesPm.csv", index=False)
 
 
 

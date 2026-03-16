@@ -21,15 +21,19 @@ Dimensions:  (TSTEP: 25, - 25 passos de tempo - 00h às 24h
 """
 
 import xarray as xr
-#import netCDF4 as nc
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.colors import SymLogNorm #Escala log
 #import pandas as pd
 import contextily as ctx
-#import geopandas as gpd
 from pyproj import Transformer
+import os
+import glob 
+import geopandas as gpd
+#from shapely.geometry import Point #serve para criar geometrias espaciais
+from shapely import contains_xy
+import csv
 
 import pyproj
 
@@ -62,38 +66,33 @@ def eqmerc2latlon(ds,xv,yv):
     
     return xlon,ylat
 
-#%% EXPLORANDO O NETCDF
+#%% VISUALIZANDO NO DOMÍNIO BR - EMISSÃO POR POLUENTE
 
-#Caminho para o arquivo .nc
-netCDFpath = '/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/IND2CMAQ_2023_03_01_0000_to_2023_03_02_0000.nc'
+#Caminho para os arquivos netCDF
+allArch = '/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory'
 
-# Abrindo o arquivo
-ds= xr.open_dataset(netCDFpath)
+# Listar os arquivos .nc
+arquivos_nc = sorted(glob.glob(os.path.join(allArch,'*.nc')))
+
+# Abrir todos os arquivos como um único dataset (data cube) com xarray
+try:
+    #ds = xr.open_mfdataset(arquivos_nc, combine="by_coords")
+    ds= xr.open_mfdataset(
+        arquivos_nc, 
+        combine="nested",
+        concat_dim="TSTEP",
+        chunks={}
+        )
+except ImportError as e:
+    print("Erro ao abrir com xarray: ", e)
 
 print(ds) # Informações do netcdf ex.: dimensões
 
-#list(ds.data_vars) # Acessar o nome das espécies químicas
-
-# Coordenadas projetadas
+# Coordenadas projetadas - chamando a função
 xv, yv, lon, lat = ioapiCoords(ds)
 
-# Converter para lat/lon
+# Converter para lat/lon - chamando a função - é EPS4326 - sistema em graus
 xlon, ylat = eqmerc2latlon(ds, xv, yv)
-
-PMC_total = ds['PMC'][:]
-PMC_total = np.nansum(np.nansum(PMC_total,axis=0),axis=0)
-
-# Somou todas as horas e as camadas, ignorou os nan's 
-
-print(PMC_total.data)
-
-# # ========== Plotando com escala linear ============
-# plt.figure(figsize=(8,6))
-# PMC_total.plot(cmap='jet_r')
-# #plt.imshow(PMC_total, cmap='jet_r')
-# #plt.colorbar(label='PMC')
-# plt.title('PMC')
-# plt.show()
 
 # ========== Plotando com ESCALA LOG ===============
 
@@ -109,7 +108,7 @@ colors[0] = [1, 1, 1, 1]  # RGBA branco
 # Cria novo colormap
 jet_white = ListedColormap(colors)
 
-# Converter lat/lon → Web Mercator
+# Converter lat/lon → Web Mercator - sistema em m
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 x_merc, y_merc = transformer.transform(xlon, ylat)
@@ -118,57 +117,171 @@ x_merc, y_merc = transformer.transform(xlon, ylat)
 # print('Lon min/max:', np.nanmin(x_merc), np.nanmax(x_merc))
 # print('Lat min/max:', np.nanmin(ylat), np.nanmax(ylat))
 
-PMC_masked = np.ma.masked_where(PMC_total <= 0, PMC_total) #mascarar zeros
-
 cmap = jet_white.copy()
 cmap.set_bad(alpha=0)
 
-# Ploting
-fig, ax = plt.subplots(figsize=(8,6))
+# Lista de variáveis do dataset
+variaveis = [
+    var for var in ds.data_vars
+    if ds[var].ndim >= 3 and 'ROW' in ds[var].dims and 'COL' in ds[var].dims
+]
 
-pcm = ax.pcolor(
-    x_merc, y_merc, PMC_masked,
-    norm=SymLogNorm(
-        linthresh=1e-3,
-        linscale=1,
-        vmin=np.nanmin(PMC_masked),
-        vmax=np.nanmax(PMC_masked)
-    ),
-    cmap=cmap
-)
+# # Definindo o caminho para salvar o nome das especies químicas
+# especies= "/home/bruno/Gabriela/Lcqar/outputs"
+# os.makedirs(especies, exist_ok=True)
 
-plt.colorbar(pcm, ax=ax, label='PMC')
+# caminho = os.path.join(especies, "variaveis.csv")
 
-ax.set_xlim(np.nanmin(x_merc), np.nanmax(x_merc))
-ax.set_ylim(np.nanmin(y_merc), np.nanmax(y_merc))
+# # Salvando como csv
+# with open(caminho, 'w', newline='') as f:
+#     writer = csv.writer(f)
+#     for item in variaveis:
+#         writer.writerow([item])
 
-# Mapa de fundo
-ctx.add_basemap(ax, 
-                source=ctx.providers.CartoDB.Positron,
-                crs="EPSG:3857")
-#ctx.add_basemap(ax, source=ctx.providers.CartoDB.Positron)
+# Definindo caminho para salvar os plots
+pasta = "/home/bruno/Gabriela/Lcqar/figuras/Inventario"
+os.makedirs(pasta, exist_ok=True)
 
-plt.title("PMC Total - escala log")
-plt.xlabel(" ")
-plt.ylabel(" ")
-plt.show()
+# Looping para acessar cada variável e plotar
+for var in variaveis:
+    print("Processando:", var)
+    
+    dado = ds[var].sum(dim=['TSTEP', 'LAY'], skipna=True).compute()
+    
+    # Mascarar zeros
+    dado_masked = dado.where(dado > 0)
+    
+    # Criar figura
+    fig, ax = plt.subplots(figsize=(8,6))
+    
+    pcm = ax.pcolormesh( #pcolor
+        x_merc, y_merc, dado_masked,
+        norm=SymLogNorm(
+            linthresh=1e-3,
+            linscale=1,
+            vmin=np.nanmin(dado_masked),
+            vmax=np.nanmax(dado_masked)
+        ),
+        cmap=cmap
+    )
+    
+    plt.colorbar(pcm, ax=ax, label=var)
+    
+    ax.set_xlim(np.nanmin(x_merc), np.nanmax(x_merc))
+    ax.set_ylim(np.nanmin(y_merc), np.nanmax(y_merc))
+    
+    ctx.add_basemap(ax,
+                    source=ctx.providers.CartoDB.Positron,
+                    crs="EPSG:3857")
+    
+    plt.title(f"{var} - Total (log)")
+    plt.tight_layout()
+    #plt.show()
+    
+    caminho_arquivo = os.path.join(pasta, f"{var}.png")
+    plt.savefig(caminho_arquivo, dpi=300, bbox_inches="tight")
+    
+    plt.close(fig)
+
+    del dado
+    del dado_masked
+   
+#%% VISUALIZANDO POR ESTADO PMC, NO2 E ALD2
+
+# Definindo caminho para o arquivo .shp
+estados = gpd.read_file("/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/BR_UF_2024/BR_UF_2024.shp")
+
+# Definindo o CRS - Coordinate Reference System 
+estados = estados.to_crs("EPSG:4326")
+
+# Definindo as especies que quero analisar
+especies = ["PMC", "NO2", "ALD2"]
+
+# Caminho para salvar os plots por Estado
+pastaUF = "/home/bruno/Gabriela/Lcqar/figuras/Inventario/Estados"
+os.makedirs(pasta, exist_ok=True)
 
 
-# =========== Total emitido por especie ============= N FUNCIONOU
+#for idx, estado in estados.head(1).iterrows():
+# Looping para analisar Estado por Estado
+for idx, estado in estados.iterrows():
+    
+    estado_nome = estado["NM_UF"]
+    print("Processando:", estado_nome)
+    
+    poligono = estado.geometry
+    
+    minx, miny, maxx, maxy = estado.geometry.bounds
+    
+    minx_m, miny_m = transformer.transform(minx, miny)
+    maxx_m, maxy_m = transformer.transform(maxx, maxy)
+    
+    # máscara espacial do estado
+    mask_estado = contains_xy(poligono, xlon, ylat)
+   
+    for var in especies:
+        print("Processando:", var)
+        
+        dado_estado = ds[var].sum(dim=['TSTEP', 'LAY'], skipna=True).compute()
+        
+        dado_estado = dado_estado.where(mask_estado)
+        # Mascarar zeros
+        dado_masked_uf = dado_estado.where(dado_estado > 0)
+        
+        # Criar figura
+        fig, ax = plt.subplots(figsize=(8,6))
+        
+        pcm = ax.pcolormesh( #pcolor
+            x_merc, y_merc, dado_masked_uf,
+            norm=SymLogNorm(
+                linthresh=1e-3,
+                linscale=1,
+                vmin=np.nanmin(dado_masked_uf),
+                vmax=np.nanmax(dado_masked_uf)
+            ),
+            cmap=cmap,
+            alpha=0.8 #transparência pixels
+        )
+        
+        plt.colorbar(pcm, ax=ax, label=var)
+        
+        ax.set_xlim(minx_m, maxx_m)
+        ax.set_ylim(miny_m, maxy_m)
+        
+        
+        # primeiro: satélite
+        ctx.add_basemap(
+            ax,
+            source=ctx.providers.Esri.WorldImagery,
+            crs="EPSG:3857"
+        )
+        
+        # segundo: labels (cidades, fronteiras, etc)
+        ctx.add_basemap(
+            ax,
+            source=ctx.providers.CartoDB.PositronOnlyLabels,
+            crs="EPSG:3857"
+        )
+        
+        gpd.GeoSeries([estado.geometry], crs="EPSG:4326").to_crs("EPSG:3857").boundary.plot(
+            ax=ax,
+            edgecolor="black", 
+            linewidth=0.6, #espessura linha
+            zorder=5 # Garante que fique acima de todas as camadas
+            )    
+        
+        plt.title(f"{var} - Total (log)")
+        plt.tight_layout()
+        #plt.show()
+        
+        caminho_arquivo = os.path.join(pastaUF, f"{var} - {estado_nome}.png")
+        plt.savefig(caminho_arquivo, dpi=300, bbox_inches="tight")
+        
+        plt.close(fig)
+    
+        del dado_estado
+        del dado_masked_uf
 
-# Total emitido ETOH 
-# etoh_total = ds['ETOH'].sum(dim=['TSTEP','LAY','ROW','COL'])
-# print(etoh_total.values)
 
-totais = (
-    ds
-    .drop_vars('TFLAG')   # remove TFLAG
-    .sum(dim=['TSTEP','LAY','ROW','COL'])
-)
-
-#print(totais)
-for var in totais.data_vars:
-    print(var, float(totais[var].values))
-
-
+#%% RASCUNHO
 

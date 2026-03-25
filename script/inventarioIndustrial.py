@@ -25,7 +25,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import ListedColormap
 from matplotlib.colors import SymLogNorm #Escala log
-#import pandas as pd
 import contextily as ctx
 from pyproj import Transformer
 import os
@@ -33,9 +32,10 @@ import glob
 import geopandas as gpd
 #from shapely.geometry import Point #serve para criar geometrias espaciais
 from shapely import contains_xy
-import csv
 
 import pyproj
+import pandas as pd
+#import urllib.parse
 
 #%% PARA TRAZER/LOCALIZAR/INSERIR LAT LON
 
@@ -113,10 +113,6 @@ transformer = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 x_merc, y_merc = transformer.transform(xlon, ylat)
 
-# Conferindo lat lon
-# print('Lon min/max:', np.nanmin(x_merc), np.nanmax(x_merc))
-# print('Lat min/max:', np.nanmin(ylat), np.nanmax(ylat))
-
 cmap = jet_white.copy()
 cmap.set_bad(alpha=0)
 
@@ -188,100 +184,146 @@ for var in variaveis:
    
 #%% VISUALIZANDO POR ESTADO PMC, NO2 E ALD2
 
-# Definindo caminho para o arquivo .shp
+# Shapefile dos estados
 estados = gpd.read_file("/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/BR_UF_2024/BR_UF_2024.shp")
-
-# Definindo o CRS - Coordinate Reference System 
 estados = estados.to_crs("EPSG:4326")
 
-# Definindo as especies que quero analisar
+# Especies que quero analisar
 especies = ["PMC", "NO2", "ALD2"]
 
 # Caminho para salvar os plots por Estado
 pastaUF = "/home/bruno/Gabriela/Lcqar/figuras/Inventario/Estados"
-os.makedirs(pasta, exist_ok=True)
+os.makedirs(pastaUF, exist_ok=True)
 
+# Caminho do csv das industrias com lat lon
+csv_ind = "/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/emission_total_light_v2.csv"
+df_ind = pd.read_csv(csv_ind)
+
+#df_ind.columns
+# Remove duplicatas
+df_ind_unique = df_ind.drop_duplicates(subset=["Longitude","Latitude"])
+
+# Converter para GeoDataFrame
+gdf_ind = gpd.GeoDataFrame(
+    df_ind_unique,
+    geometry=gpd.points_from_xy(df_ind_unique["Longitude"], df_ind_unique["Latitude"]),
+    crs="EPSG:4326"
+)
+
+#print("Total de registros:", len(df_ind_unique))
+cmap = plt.cm.inferno
 
 #for idx, estado in estados.head(1).iterrows():
+    
 # Looping para analisar Estado por Estado
 for idx, estado in estados.iterrows():
-    
+
     estado_nome = estado["NM_UF"]
     print("Processando:", estado_nome)
     
     poligono = estado.geometry
     
-    minx, miny, maxx, maxy = estado.geometry.bounds
+    # Limites do estado para metros (3857) 
+    geom_estado_merc = gpd.GeoSeries([poligono], crs="EPSG:4326").to_crs("EPSG:3857")
     
-    minx_m, miny_m = transformer.transform(minx, miny)
-    maxx_m, maxy_m = transformer.transform(maxx, maxy)
-    
-    # máscara espacial do estado
-    mask_estado = contains_xy(poligono, xlon, ylat)
+    minx_m, miny_m, maxx_m, maxy_m = geom_estado_merc.total_bounds
    
+    # Indústrias dentro do estado
+    gdf_estado = gdf_ind[gdf_ind.geometry.within(poligono)]
+    
+    print("Indústrias no estado:", estado_nome, "=", len(gdf_estado))
+    
+    #gdf_estado_merc = gdf_estado.to_crs("EPSG:3857")
+    
+    # converter indústrias para metros
+    if len(gdf_estado) > 0:
+        gdf_estado_merc = gdf_estado.to_crs("EPSG:3857")
+    
     for var in especies:
         print("Processando:", var)
         
-        dado_estado = ds[var].sum(dim=['TSTEP', 'LAY'], skipna=True).compute()
+        dado_total = ds[var].sum(dim=['TSTEP', 'LAY'], skipna=True).compute()
         
-        dado_estado = dado_estado.where(mask_estado)
-        # Mascarar zeros
-        dado_masked_uf = dado_estado.where(dado_estado > 0)
-        
+        cond = (
+           (x_merc >= minx_m) & (x_merc <= maxx_m) &
+           (y_merc >= miny_m) & (y_merc <= maxy_m)
+       )
+       
+        mask_estado = contains_xy(poligono, xlon, ylat)
+
+        mask_final = cond & mask_estado
+
+        dado_plot = dado_total.where(mask_final)
+        dado_plot = dado_plot.where(dado_plot > 0)
+     
         # Criar figura
         fig, ax = plt.subplots(figsize=(8,6))
         
+        ax.set_xlim(minx_m, maxx_m)
+        ax.set_ylim(miny_m, maxy_m)
+    
+        # ctx.add_basemap(
+        #     ax,
+        # source=ctx.providers.CartoDB.Positron,
+        # crs="EPSG:3857",
+        # alpha=0.5,
+        # zorder=1
+        # )
+        
         pcm = ax.pcolormesh( #pcolor
-            x_merc, y_merc, dado_masked_uf,
+            x_merc, y_merc, dado_plot,
             norm=SymLogNorm(
                 linthresh=1e-3,
                 linscale=1,
-                vmin=np.nanmin(dado_masked_uf),
-                vmax=np.nanmax(dado_masked_uf)
+                vmin=np.nanpercentile(dado_plot.values, 5),
+                vmax=np.nanpercentile(dado_plot.values, 95)
             ),
             cmap=cmap,
-            alpha=0.8 #transparência pixels
-        )
+            alpha=0.8, #transparência pixels
+            zorder=1,
+            shading='auto')
         
-        plt.colorbar(pcm, ax=ax, label=var)
-        
-        ax.set_xlim(minx_m, maxx_m)
-        ax.set_ylim(miny_m, maxy_m)
-        
-        
-        # primeiro: satélite
-        ctx.add_basemap(
-            ax,
-            source=ctx.providers.Esri.WorldImagery,
-            crs="EPSG:3857"
-        )
-        
-        # segundo: labels (cidades, fronteiras, etc)
-        ctx.add_basemap(
-            ax,
-            source=ctx.providers.CartoDB.PositronOnlyLabels,
-            crs="EPSG:3857"
-        )
+        #plt.colorbar(pcm, ax=ax, label=var)
+        cbar = plt.colorbar(pcm, ax=ax)
+        cbar.set_label(f"{var} (concentração)")
         
         gpd.GeoSeries([estado.geometry], crs="EPSG:4326").to_crs("EPSG:3857").boundary.plot(
             ax=ax,
             edgecolor="black", 
             linewidth=0.6, #espessura linha
-            zorder=5 # Garante que fique acima de todas as camadas
+            zorder=2 
             )    
         
-        plt.title(f"{var} - Total (log)")
+        # pontos das indústrias
+        if len(gdf_estado) > 0:
+            gdf_estado_merc.plot(
+                ax=ax,
+                color="white",
+                markersize=4,
+                edgecolor="black",
+                linewidth=0.4,
+                alpha=0.9,
+                zorder=3,
+                label="Indústrias"
+                )
+        
+        plt.title(f"{var} - Total (log)\n {estado_nome}")
+        
+        ax.legend(loc="upper right")
+        
         plt.tight_layout()
         #plt.show()
+        ax.set_axis_off()
         
         caminho_arquivo = os.path.join(pastaUF, f"{var} - {estado_nome}.png")
         plt.savefig(caminho_arquivo, dpi=300, bbox_inches="tight")
         
         plt.close(fig)
     
-        del dado_estado
-        del dado_masked_uf
+        #del dado_estado
+        del dado_total
+        #del dado_masked_uf
+        del dado_plot
 
 
 #%% RASCUNHO
-

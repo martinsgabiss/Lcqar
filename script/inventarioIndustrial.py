@@ -20,6 +20,8 @@ Dimensions:  (TSTEP: 25, - 25 passos de tempo - 00h às 24h
 @author: bruno
 """
 
+# ---------IMPORTANDO PACOTES
+
 import xarray as xr
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,14 +32,29 @@ from pyproj import Transformer
 import os
 import glob 
 import geopandas as gpd
-#from shapely.geometry import Point #serve para criar geometrias espaciais
 from shapely import contains_xy
 
 import pyproj
 import pandas as pd
-#import urllib.parse
 
-#%% PARA TRAZER/LOCALIZAR/INSERIR LAT LON
+#%% ---------- CAMINHOS
+
+baseDir = "/home/bruno/Gabriela/Lcqar"
+
+inDir = os.path.join(baseDir, "inputs", "IndustrialInventory")
+
+outDir = os.path.join(baseDir, "figuras", "Inventario")
+# Definindo caminho para salvar os plots
+#pasta = "/home/bruno/Gabriela/Lcqar/figuras/Inventario"
+os.makedirs(outDir, exist_ok=True)
+
+outUfDir = os.path.join(outDir, "Estados")
+
+# Arquivos específicos
+arqIndustriais = os.path.join(inDir, "emission_total_light_v2.csv")
+shapeEstados = os.path.join(inDir, "BR_UF_2024", "BR_UF_2024.shp")
+
+#%% FUNÇÕES PARA TRAZER/LOCALIZAR/INSERIR LAT LON
 
 def ioapiCoords(ds): #criar as coordenadas X e Y reais da grade
     # Latlon
@@ -68,11 +85,13 @@ def eqmerc2latlon(ds,xv,yv):
 
 #%% VISUALIZANDO NO DOMÍNIO BR - EMISSÃO POR POLUENTE
 
-#Caminho para os arquivos netCDF
-allArch = '/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory'
-
 # Listar os arquivos .nc
-arquivos_nc = sorted(glob.glob(os.path.join(allArch,'*.nc')))
+arquivos_nc = sorted(glob.glob(os.path.join(inDir,'*.nc')))
+
+#Caminho para os arquivos netCDF
+#allArch = '/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory'
+
+#arquivos_nc = sorted(glob.glob(os.path.join(allArch,'*.nc')))
 
 # Abrir todos os arquivos como um único dataset (data cube) com xarray
 try:
@@ -133,10 +152,6 @@ variaveis = [
 #     writer = csv.writer(f)
 #     for item in variaveis:
 #         writer.writerow([item])
-
-# Definindo caminho para salvar os plots
-pasta = "/home/bruno/Gabriela/Lcqar/figuras/Inventario"
-os.makedirs(pasta, exist_ok=True)
 
 # Looping para acessar cada variável e plotar
 for var in variaveis:

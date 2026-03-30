@@ -41,14 +41,17 @@ import pandas as pd
 
 baseDir = "/home/bruno/Gabriela/Lcqar"
 
+# Caminho base dados entrada
 inDir = os.path.join(baseDir, "inputs", "IndustrialInventory")
 
+# Caminho para salvar os plots 
+# -> BR por poluente
 outDir = os.path.join(baseDir, "figuras", "Inventario")
-# Definindo caminho para salvar os plots
-#pasta = "/home/bruno/Gabriela/Lcqar/figuras/Inventario"
 os.makedirs(outDir, exist_ok=True)
 
+# -> Por estado e indústrias (por poluente)
 outUfDir = os.path.join(outDir, "Estados")
+os.makedirs(outUfDir, exist_ok=True)
 
 # Arquivos específicos
 arqIndustriais = os.path.join(inDir, "emission_total_light_v2.csv")
@@ -83,19 +86,13 @@ def eqmerc2latlon(ds,xv,yv):
     
     return xlon,ylat
 
-#%% VISUALIZANDO NO DOMÍNIO BR - EMISSÃO POR POLUENTE
+#%% DOMÍNIO BR - EMISSÃO POR POLUENTE
 
 # Listar os arquivos .nc
 arquivos_nc = sorted(glob.glob(os.path.join(inDir,'*.nc')))
 
-#Caminho para os arquivos netCDF
-#allArch = '/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory'
-
-#arquivos_nc = sorted(glob.glob(os.path.join(allArch,'*.nc')))
-
 # Abrir todos os arquivos como um único dataset (data cube) com xarray
 try:
-    #ds = xr.open_mfdataset(arquivos_nc, combine="by_coords")
     ds= xr.open_mfdataset(
         arquivos_nc, 
         combine="nested",
@@ -165,7 +162,7 @@ for var in variaveis:
     # Criar figura
     fig, ax = plt.subplots(figsize=(8,6))
     
-    pcm = ax.pcolormesh( #pcolor
+    pcm = ax.pcolormesh( 
         x_merc, y_merc, dado_masked,
         norm=SymLogNorm(
             linthresh=1e-3,
@@ -189,7 +186,7 @@ for var in variaveis:
     plt.tight_layout()
     #plt.show()
     
-    caminho_arquivo = os.path.join(pasta, f"{var}.png")
+    caminho_arquivo = os.path.join(outDir, f"{var}.png")
     plt.savefig(caminho_arquivo, dpi=300, bbox_inches="tight")
     
     plt.close(fig)
@@ -200,19 +197,14 @@ for var in variaveis:
 #%% VISUALIZANDO POR ESTADO PMC, NO2 E ALD2
 
 # Shapefile dos estados
-estados = gpd.read_file("/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/BR_UF_2024/BR_UF_2024.shp")
+estados = gpd.read_file(shapeEstados)
 estados = estados.to_crs("EPSG:4326")
 
 # Especies que quero analisar
 especies = ["PMC", "NO2", "ALD2"]
 
-# Caminho para salvar os plots por Estado
-pastaUF = "/home/bruno/Gabriela/Lcqar/figuras/Inventario/Estados"
-os.makedirs(pastaUF, exist_ok=True)
-
-# Caminho do csv das industrias com lat lon
-csv_ind = "/home/bruno/Gabriela/Lcqar/inputs/IndustrialInventory/emission_total_light_v2.csv"
-df_ind = pd.read_csv(csv_ind)
+# Lendo o csv
+df_ind = pd.read_csv(arqIndustriais)
 
 #df_ind.columns
 # Remove duplicatas
@@ -228,46 +220,58 @@ gdf_ind = gpd.GeoDataFrame(
 #print("Total de registros:", len(df_ind_unique))
 cmap = plt.cm.inferno
 
-#for idx, estado in estados.head(1).iterrows():
+for idx, estado in estados.head(1).iterrows():
     
 # Looping para analisar Estado por Estado
-for idx, estado in estados.iterrows():
+#for idx, estado in estados.iterrows():
 
     estado_nome = estado["NM_UF"]
+
     print("Processando:", estado_nome)
     
-    poligono = estado.geometry
+    poligono = estado.geometry #extrai a geometria de cada estado(polígono)
+
+    # Corrige geometria
+    poligono = poligono.buffer(0)
+    
+    # Se for MultiPolygon, pega só o maior (continente)
+    if poligono.geom_type == "MultiPolygon":
+        poligono = max(poligono.geoms, key=lambda g: g.area)
     
     # Limites do estado para metros (3857) 
     geom_estado_merc = gpd.GeoSeries([poligono], crs="EPSG:4326").to_crs("EPSG:3857")
     
+    #Define limites para o mapa
     minx_m, miny_m, maxx_m, maxy_m = geom_estado_merc.total_bounds
    
-    # Indústrias dentro do estado
+    # Pontos das indústrias dentro do estado
     gdf_estado = gdf_ind[gdf_ind.geometry.within(poligono)]
     
-    print("Indústrias no estado:", estado_nome, "=", len(gdf_estado))
-    
-    #gdf_estado_merc = gdf_estado.to_crs("EPSG:3857")
-    
-    # converter indústrias para metros
+    # Converter indústrias para metros
     if len(gdf_estado) > 0:
         gdf_estado_merc = gdf_estado.to_crs("EPSG:3857")
     
     for var in especies:
         print("Processando:", var)
         
+        poligono_merc = geom_estado_merc.iloc[0]      
+        
         dado_total = ds[var].sum(dim=['TSTEP', 'LAY'], skipna=True).compute()
         
+        # Os pontos estão dentro do retângulo - + rápido computacionalmente
         cond = (
            (x_merc >= minx_m) & (x_merc <= maxx_m) &
            (y_merc >= miny_m) & (y_merc <= maxy_m)
-       )
-       
-        mask_estado = contains_xy(poligono, xlon, ylat)
+        )
+        
+        # Verifica se cada ponto está dentro do polígono
+        #mask_estado = contains_xy(poligono, xlon, ylat)
+        mask_estado = contains_xy(poligono_merc, x_merc, y_merc)
 
+        # Junta o retângulo com o polígono
         mask_final = cond & mask_estado
 
+        # Aplica o mask_final 
         dado_plot = dado_total.where(mask_final)
         dado_plot = dado_plot.where(dado_plot > 0)
      
@@ -285,7 +289,7 @@ for idx, estado in estados.iterrows():
         # zorder=1
         # )
         
-        pcm = ax.pcolormesh( #pcolor
+        pcm = ax.pcolormesh(
             x_merc, y_merc, dado_plot,
             norm=SymLogNorm(
                 linthresh=1e-3,
@@ -294,7 +298,7 @@ for idx, estado in estados.iterrows():
                 vmax=np.nanpercentile(dado_plot.values, 95)
             ),
             cmap=cmap,
-            alpha=0.8, #transparência pixels
+            alpha=1, #transparência pixels
             zorder=1,
             shading='auto')
         
@@ -302,6 +306,27 @@ for idx, estado in estados.iterrows():
         cbar = plt.colorbar(pcm, ax=ax)
         cbar.set_label(f"{var} (concentração)")
         
+        NÃO DEU CERTO DA EESCALA
+        cbar.set_ticks([1e-3, 1e-2, 1e-1, 1, 10, 100, 1000])
+        # vmin = np.nanpercentile(dado_plot.values, 5)
+        # vmax = np.nanpercentile(dado_plot.values, 95)
+        
+        # # segurança
+        # if vmin <= 0 or np.isnan(vmin):
+        #     vmin = 1e-3
+        # if vmax <= vmin:
+        #     vmax = vmin * 10
+        
+        # ticks = np.logspace(
+        #     np.floor(np.log10(vmin)),
+        #     np.ceil(np.log10(vmax)),
+        #     5
+        # )
+        
+        # cbar.set_ticks(ticks)
+        # cbar.ax.set_yticklabels([f"{t:.0e}" for t in ticks])
+
+
         gpd.GeoSeries([estado.geometry], crs="EPSG:4326").to_crs("EPSG:3857").boundary.plot(
             ax=ax,
             edgecolor="black", 
@@ -314,23 +339,34 @@ for idx, estado in estados.iterrows():
             gdf_estado_merc.plot(
                 ax=ax,
                 color="white",
-                markersize=4,
+                markersize=7,
                 edgecolor="black",
-                linewidth=0.4,
+                linewidth=0.5,
                 alpha=0.9,
                 zorder=3,
                 label="Indústrias"
                 )
         
-        plt.title(f"{var} - Total (log)\n {estado_nome}")
+        #plt.title(f"{var} - Total (log)\n {estado_nome}")
+        fig.suptitle(
+        f"{var} - Total (log)\n{estado_nome}",
+        fontsize=10,
+        fontweight="bold",
+        y=0.98
+        )
         
-        ax.legend(loc="upper right")
+        #ax.legend(loc="upper right")
+        #ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+        ax.legend(loc="lower left")
         
-        plt.tight_layout()
+        #plt.tight_layout()
+        #plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plt.tight_layout(rect=[0, 0, 0.9, 0.93])
+        
         #plt.show()
         ax.set_axis_off()
         
-        caminho_arquivo = os.path.join(pastaUF, f"{var} - {estado_nome}.png")
+        caminho_arquivo = os.path.join(outUfDir, f"{var} - {estado_nome}.png")
         plt.savefig(caminho_arquivo, dpi=300, bbox_inches="tight")
         
         plt.close(fig)
@@ -340,5 +376,7 @@ for idx, estado in estados.iterrows():
         #del dado_masked_uf
         del dado_plot
 
-
-#%% RASCUNHO
+print(estados.crs)
+print(gdf_ind.crs)
+print(x_merc.min(), x_merc.max())
+print(xlon.min(), xlon.max())

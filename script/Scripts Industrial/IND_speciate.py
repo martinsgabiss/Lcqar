@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+-------------------------------------------------------------------------------
+                             IND_speciate.py
+                             
+                             
+This function speciates the industrial emission in chemical species. Conversion
+from NOx to NO (0.495) and NO2 (0.505)
+
+Inputs: 
+    
+    rootPath: Path to functions
+    
+    dataEmissIND: dataframe with industrial emissions and coordinates
+    
+    
+Input files:
+    
+    CMAQ_species.csv: list of CMAQ species in IndustriaSpeciation folder
+        
+    IND_PROFILES_speciate.csv: Speciation profiles by industrial ID in 
+            IndustriaSpeciation folder
+        
+    BR_Ind_Profiles.csv: speciate profiles to be used in each industrial ID
+   
+    CMAQ_speciesMW: Molecular Weight of chemical species    
+       
+
+Outputs:
+    
+    dataEmissX: Dataframe with speciated emissions
+
+    
+
+Last update = 29/10/2021
+
+Author: Leonardo Hoinaski - leonardo.hoinaski@ufsc.br
+
+-------------------------------------------------------------------------------
+"""
+
+#%% Importing packages
+
+import pandas as pd
+import numpy as np
+from speciate_to_cmaq import SpeciateToCMAQ as Speciator
+
+#%% ------------------------- PROCESSING---------------------------------------
+def IndSpeciate (rootPath,dataEmissIND,dataAssociation):
+    
+    my_speciator = Speciator()
+    
+    df_association = pd.read_csv(rootPath+'/IndustrialSpeciation/InventorySpeciate_association.csv')
+
+    smm = pd.read_csv(rootPath+'/IndustrialSpeciation/CMAQ_speciesMW.csv')
+
+    cols = ['SETOR','SNAP', 'Technology', 'Abatement', 'Fuel']
+    
+    dataAssociation_2 = dataAssociation
+    dataAssociation_2['SNAP'] = pd.to_numeric(dataAssociation_2['SNAP'], errors='coerce').astype('Int64')
+    df_association['SNAP'] = pd.to_numeric(df_association['SNAP'], errors='coerce').astype('Int64')
+
+    for c in cols:
+        dataAssociation_2[c] = dataAssociation_2[c].astype(str).str.strip()
+        df_association[c] = df_association[c].astype(str).str.strip()    
+
+    df_profiles = dataAssociation_2.merge(
+        df_association[['SETOR','SNAP','Technology','Abatement','Fuel','PROFILE_PM','PROFILE_GAS']],
+        on=['SETOR','SNAP','Technology','Abatement','Fuel'],
+        how='left'
+    )
+
+    dataEmissIND['VOC'] = dataEmissIND['CH4']+dataEmissIND['NMVOC'] # FIXME
+    
+    df_profiles.to_csv(rootPath+'/Outputs/BR_12km/df_profiles_spec.csv')
+    dataEmissIND.to_csv(rootPath+'/Outputs/BR_12km/data_emiss_ind.csv')
+    
+    dataEmissX = pd.DataFrame()
+    
+    for i in range(len(dataEmissIND)):
+        
+        pm_profile = str(df_profiles.loc[i,'PROFILE_PM'])
+        gas_profile = str(df_profiles.loc[i,'PROFILE_GAS'])
+        
+        if ';' in pm_profile:
+            pm_profile = pm_profile.split(';')
+        elif pm_profile != 'nan':
+            pm_profile = [pm_profile]
+            
+        if ';' in gas_profile:
+            gas_profile = gas_profile.split(';')
+            print(gas_profile)
+        elif gas_profile != 'nan':
+            gas_profile = [gas_profile]
+        
+        if pm_profile != 'nan':
+            pm_factors = my_speciator.generate_fractions(pm_profile)
+            pm_factors[pm_factors.select_dtypes(include='number').columns] *= dataEmissIND.loc[i, 'PM25']
+            pm_speciated = pm_factors
+            pm_speciated = pm_speciated.set_index("Species")["Fraction"].to_frame().T.reset_index(drop=True)
+            
+        else:
+            pm_speciated = pd.DataFrame({'PMOTHR':[0]})
+            #print("Faltando perfil de MP2.5 para fonte "+ str(i))
+        
+        if gas_profile != 'nan':
+            gas_factors = my_speciator.generate_fractions(gas_profile,gas_tog_to_voc=True)
+            gas_factors[gas_factors.select_dtypes(include='number').columns] *= dataEmissIND.loc[i, 'VOC']
+            resultado = []
+
+            for k, row in gas_factors.iterrows():
+                specie = row['Species']
+                if specie != 'CH4':
+                    fraction = row['Fraction']
+                    print(specie)
+                    print(smm.loc[smm.iloc[:,0] == specie, 'MM'].iloc[0])
+                    mm = smm.loc[smm.iloc[:,0] == specie, 'MM'].iloc[0]
+                    valor = pd.to_numeric(fraction, errors='coerce') * float(mm)
+                    resultado.append(valor)
+                elif specie == 'CH4':
+                    j=k
+                    resultado.append(dataEmissIND.loc[i, 'CH4']*16)
+            
+            resultado_sem_ch4 = resultado
+            print(resultado_sem_ch4)
+            
+            try:
+                print(j)
+                if gas_factors['Species'][j]=='CH4':
+                    resultado_sem_ch4.pop(j)
+                else:
+                    print('Não há CH4 no fator '+str(gas_profile))
+            except:
+                print('Não há CH4 no fator '+str(gas_profile))
+            print(dataEmissIND.loc[i,'NMVOC'])
+
+            if pd.isna(dataEmissIND.loc[i, 'NMVOC']):
+                dataEmissIND.loc[i, 'NMVOC'] = 0
+            print(dataEmissIND.loc[i,'NMVOC'])
+
+
+            if sum(resultado_sem_ch4)>dataEmissIND.loc[i, 'NMVOC']:
+                factor = dataEmissIND.loc[i, 'NMVOC']/sum(resultado)
+                gas_factors['Fraction'] *= factor
+                print('Está superestimando NMVOC, corrigindo...')
+            
+            try:
+                gas_factors['Fraction'][j]=dataEmissIND.loc[i, 'CH4']
+            except:
+                print('Não há CH4')
+
+            gas_speciated = gas_factors
+            gas_speciated = gas_speciated.set_index("Species")["Fraction"].to_frame().T.reset_index(drop=True)
+            
+        else:
+            gas_speciated = pd.DataFrame({'CH4':[dataEmissIND.loc[i, 'CH4']]})
+            print("Faltando perfil de VOC para fonte "+ str(i))
+        
+        pols_speciated = pd.DataFrame({'CO':[float(dataEmissIND.loc[i, 'CO']/28)],
+                                       'SO2':[float(dataEmissIND.loc[i, 'SOx']/64)],
+                                       'VOC_INV':[float(dataEmissIND.loc[i, 'VOC'])],
+                                       'PMC':[float(dataEmissIND.loc[i, 'PM10']-dataEmissIND.loc[i, 'PM25'])],
+                                       'NO':[float(dataEmissIND.loc[i, 'NOx']*0.495/30)],
+                                       'NO2':[float(dataEmissIND.loc[i, 'NOx']*0.505/46)],
+                                       'NH3':[float(dataEmissIND.loc[i, 'NH3']/17)]
+                                       }).reset_index(drop=True)
+        
+        linha = pd.concat([pm_speciated,gas_speciated,pols_speciated], axis=1)
+        dataEmissX = pd.concat([dataEmissX,linha],ignore_index=True)
+
+    dataEmissX = dataEmissX.drop(columns=['IVOC'])
+    
+    dataEmissX.to_csv(rootPath+'/Outputs/BR_12km/data_emiss_spec.csv')
+    
+    colunasX = list(dataEmissX.columns)
+
+    return dataEmissX, colunasX
+
+def IndSpeciate_old (rootPath,dataEmissIND):
+    
+    # Opening CMAQ_species.csv
+    file_path_CMAQ_species = "/IndustrialSpeciation/CMAQ_species.csv"
+    dfCMAQspc = pd.read_csv(rootPath+file_path_CMAQ_species)
+    
+    # Opening SPEC_names.csv
+    file_path_SPEC_names = "/IndustrialSpeciation/SPEC_names.csv"
+    dfspec = pd.read_csv(rootPath+file_path_SPEC_names,index_col=0)
+    
+    # Opening SPEC_names.csv
+    file_path_IND_PROFILES_speciate = "/Inputs/IND_PROFILES_speciate.xlsx"
+    proConv = pd.read_excel(rootPath+file_path_IND_PROFILES_speciate,index_col=0)
+    proConv['proID'] = proConv.index.astype(str)
+    
+    # Opening SPEC_names.csv
+    file_path_BR_Ind_Profiles = "/Inputs/BR_Ind_Profiles.xlsx"
+    IndProfiles = pd.read_excel(rootPath+file_path_BR_Ind_Profiles,index_col=0)
+    
+    file_path_CMAQ_speciesMW = '/IndustrialSpeciation/CMAQ_speciesMW.csv'
+    smm = pd.read_csv(rootPath+file_path_CMAQ_speciesMW)
+    
+    dfCMAQspc2 = pd.DataFrame()
+    for idx in IndProfiles.index:
+        if isinstance(IndProfiles['PROFILE'][idx], str):
+            proPM = IndProfiles['PROFILE'][idx].split(";")
+            for idxPM in proPM:
+                dfPM = pd.read_csv(rootPath+'/IndustrialSpeciation/'+idxPM.replace(" ", "")+'.csv',index_col=0)
+                dfPJoin = dfPM.join(dfspec)
+                dfCMAQspcX = dfCMAQspc.set_index('Formula').join(dfPJoin.set_index('Molecular Formula'))
+                df_num = dfCMAQspcX.select_dtypes(include='number').groupby(dfCMAQspcX.index).mean() #FIXME
+                df_str = dfCMAQspcX.select_dtypes(exclude='number').groupby(dfCMAQspcX.index).first() #FIXME
+                dfCMAQspcX = df_num.join(df_str) #FIXME
+                dfCMAQspcX = pd.DataFrame(dfCMAQspcX.iloc[:,0])
+                dfCMAQspcX['IDX'] = idx
+                
+                # Converting TOG to VOC
+                if np.isnan(proConv[proConv['proID'].str.replace(" ", "") == 
+                            idxPM.replace(" ", "")]['TOG_to_VOC RATIO'].values)==False:
+                    dfCMAQspcX['WEIGHT_PERCENT'] = dfCMAQspcX['WEIGHT_PERCENT']*\
+                        proConv[proConv['proID'].str.replace(" ", "") == 
+                                idxPM.replace(" ", "")]['TOG_to_VOC RATIO'].values
+                   
+                dfCMAQspc2 = pd.concat([dfCMAQspc2,dfCMAQspcX])
+                              
+            
+    dfCMAQspc2['Formula'] = dfCMAQspc2.index.get_level_values(0)
+    dfCMAQspc2['ID'] = dfCMAQspc2['IDX']
+    print(dfCMAQspc2)
+    dfCMAQspc2 = dfCMAQspc2.select_dtypes(include='number').groupby(by=['IDX','Formula']).mean() #FIXME
+    #df_str = dfCMAQspc2.select_dtypes(exclude='number').groupby(by=['IDX','Formula']).first() #FIXME
+    #dfCMAQspc2 = df_num.join(df_str) #FIXME
+    #dfCMAQspc2 = dfCMAQspc2.groupby(by=['IDX','Formula']).mean() #FIXME
+    
+    
+    df3 = dfCMAQspc2.unstack(level='IDX')
+    df3.columns = df3.columns.droplevel()
+    cmaqSpecies = pd.DataFrame()
+    cmaqSpecies['Formula']=df3.index
+    
+    for idx in IndProfiles.index:
+        if any(dfCMAQspc2['ID']==idx):
+            cmaqSpecies['ID_'+str(idx)] = np.array(dfCMAQspc2[dfCMAQspc2['ID']==idx]['WEIGHT_PERCENT'])
+        else:
+            cmaqSpecies['ID_'+str(idx)] = np.zeros((cmaqSpecies.shape[0],1))
+
+
+    # Creating the .csv file   
+    cmaqSpecies = dfCMAQspc.set_index('Formula').merge(cmaqSpecies.set_index('Formula'),how='left', on='Formula')
+    cmaqSpecies=cmaqSpecies.fillna(0)   
+    cmaqSpecies.iloc[:,3:]=cmaqSpecies.iloc[:,3:]/100 # converting from percentage to factor
+    cmaqSpecies.to_csv(rootPath+'/IndustrialSpeciation/IND_speciation.csv')
+    
+    
+    dataEmissIND.columns = dataEmissIND.columns.str.replace(' ', '')
+    # Creating dataEmiss matrix
+    dataEmissX=pd.DataFrame()
+
+    vocSpecs = ['ACET','ACROLEIN','ALD2','ALD2_PRIMARY','BENZ','BUTADIENE13','CH4',
+                'CH4_INV','ETH','ETHA','ETHY','ETOH','FORM','FORM_PRIMARY','ISO',
+                'MEOH','NAPH','PRPA','TOL','XYLMN']
+                
+
+    # Filling VOC emissions
+    for ii in range(0,dfCMAQspc.shape[0]):
+        for jj in range(0,dataEmissIND['ID'].shape[0]):
+            col = 'ID_'+str(int(dataEmissIND['ID'][jj]))
+            dataEmissX[dfCMAQspc.ID[ii]]= np.array(cmaqSpecies[col][ii])*dataEmissIND['PMemis']/smm.iloc[ii,1] 
+    
+    for ii in range(0,len(vocSpecs)):
+        for jj in range(0,dataEmissIND['ID'].shape[0]):
+            col = 'ID_'+str(int(dataEmissIND['ID'][jj]))
+            dataEmissX[vocSpecs[ii]][jj]= \
+                np.array(cmaqSpecies[col][cmaqSpecies.ID==vocSpecs[ii]])*\
+                    dataEmissIND['VOCemis'][jj]/smm[smm.ID==vocSpecs[ii]].MM
+
+    dataEmissX['CO'] = dataEmissIND['COemis']/np.array(smm[smm.iloc[:,0]=='CO'].MM)
+    dataEmissX['SO2'] = dataEmissIND['SOxemis']/np.array(smm[smm.iloc[:,0]=='SO2'].MM)
+    dataEmissX['VOC_INV'] = dataEmissIND['VOCemis']
+    dataEmissX['PMC'] = dataEmissIND['PMemis']
+    dataEmissX['NO'] = dataEmissIND['NOxemis']*np.array(0.495/smm[smm.iloc[:,0]=='NO'].MM)
+    dataEmissX['NO2'] = dataEmissIND['NOxemis']*np.array(0.505/smm[smm.iloc[:,0]=='NO2'].MM)
+    
+    return dataEmissX

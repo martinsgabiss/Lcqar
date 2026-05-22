@@ -15,11 +15,26 @@ import matplotlib.dates as mdates
 
 from scipy.stats import linregress
 import numpy as np
+import seaborn as sns
+
+#%% Pastas e caminhos
+
+# Caminhos para salvar Outputs
+pastaOutputsConvencional = "/home/bruno/Gabriela/Lcqar/outputs/Frota Elétricos"
+
+# cria a pasta caso não exista
+os.makedirs(pastaOutputsConvencional, exist_ok=True)
+
+# Caminhos para figuras
+pastaFigurasConvencional = '/home/bruno/Gabriela/Lcqar/figuras/Onibus Eletricos/Onibus Convencionais'
+
+# cria a pasta caso não exista
+os.makedirs(pastaFigurasConvencional, exist_ok=True)
+
 
 #%% Manipulando os arquivos excel
 
 # 1. Defina o caminho da pasta onde estão os arquivos
-#pastaFuel = '/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/4.FrotaPorMunicipioECombustivel'
 pastaTipoFrota = '/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/2.FrotaPorMunicipio'
 
 
@@ -82,6 +97,10 @@ dfOnibusMun = dfFrotaMun[['UF','MUNICIPIO','MICRO-ONIBUS','ONIBUS','ANO_MÊS']]
 # Adicionando coluna Soma 
 dfOnibusMun['TOTAL'] = dfOnibusMun['MICRO-ONIBUS'] + dfOnibusMun['ONIBUS']
 
+dfOnibusMun = dfOnibusMun.sort_values(["UF", "ANO_MÊS"])
+
+# FROTA POR UF
+
 # Fazendo a efetiva soma da coluna SOMA que junta Onibus com Micro-onibus
 dfOnibusUF= (
     dfOnibusMun.groupby(["UF", "ANO_MÊS"])["TOTAL"]
@@ -91,6 +110,93 @@ dfOnibusUF= (
 
 # Transformando em datetime
 dfOnibusUF["ANO_MÊS"] = pd.to_datetime(dfOnibusUF["ANO_MÊS"].astype(str))
+
+# Criar coluna Ano
+dfOnibusUF["ANO"] = dfOnibusUF["ANO_MÊS"].dt.year
+
+# Garantir ordem 
+dfOnibusUF = dfOnibusUF.sort_values(["UF", "ANO_MÊS"])
+
+# Criar coluna e respectivo calculo entre linhas por UF
+# Aqui é quanto a frota variou em relação ao mês anterior.
+dfOnibusUF["VARIAÇÂO (%)"] = (dfOnibusUF.groupby("UF")["TOTAL"]
+    .pct_change() * 100)
+
+
+#%% -------------- FROTA ONIBUS CONVENCIONAL POR ANO E UF
+# dfFrotaConvencionalY = (dfOnibusUF.groupby(
+#     ["UF", "ANO"])["TOTAL"].
+#     sum().
+#     reset_index()
+#     )
+
+dfFrotaConvencionalY = (
+    dfOnibusUF
+    .groupby(["UF", "ANO"])["TOTAL"]
+    .last()
+    .reset_index())
+
+dfFrotaConvencionalY["VARIAÇÂO (%)"] = (dfFrotaConvencionalY
+                                        .groupby("UF")["TOTAL"]
+    .pct_change() * 100)
+
+
+
+# salva o csv dentro dela
+dfFrotaConvencionalY.to_csv(
+    f"{pastaOutputsConvencional}/Onibus_convencional_UF_anual%.csv",
+    index=False
+)
+
+
+#%% -------------- Criar gráfico POR ESTADO
+
+cores_40 = sns.color_palette("tab20", 20) + sns.color_palette("tab20b", 20)
+
+fig, ax = plt.subplots(figsize=(12,6))
+
+for i,estado in enumerate(dfOnibusUF["UF"].unique()):
+
+    dados_estadolog = dfOnibusUF[dfOnibusUF["UF"] == estado]
+
+    ax.plot(
+        dados_estadolog["ANO_MÊS"],
+        dados_estadolog["TOTAL"],
+        label=estado,
+        color=cores_40[i % len(cores_40)]
+    )
+
+    ax.xaxis.set_major_locator(mdates.YearLocator())
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
+    ax.xaxis.set_minor_locator(mdates.MonthLocator())
+    
+    ax.set_yscale("log")
+    
+   # plt.legend()
+    plt.legend(
+        loc='center left',
+        bbox_to_anchor=(1.02, 0.5),
+        ncol=1,
+        fontsize=9,
+        frameon=False
+    )
+    
+    plt.xlabel("Ano")
+    plt.ylabel("N° Ônibus")
+    plt.title("Frota de Ônibus - UF")
+    
+    #plt.show()
+    
+    # salva figura
+    fig.savefig(os.path.join(
+        pastaFigurasConvencional,
+     "frota_onibus_convencional_porUF.png"),
+    dpi=300,
+    bbox_inches="tight"
+)
+
+
+#%% -------------- Criar gráfico COM TODAS AS REGIÕES
 
 # Dicionário completo das regiões
 regioes = {
@@ -136,20 +242,6 @@ regioes = {
 # Criar coluna de região e preencher com respectiva região
 dfOnibusUF["REGIÃO"] = dfOnibusUF["UF"].map(regioes)
 
-# Criar coluna Ano
-dfOnibusUF["ANO"] = dfOnibusUF["ANO_MÊS"].dt.year
-
-# Garantir ordem 
-dfOnibusUF = dfOnibusUF.sort_values(["UF", "ANO_MÊS"])
-
-# Criar coluna e respectivo calculo entre linhas por UF
-# Aqui é quanto a frota variou em relação ao mês anterior.
-dfOnibusUF["VARIAÇÂO (%)"] = (dfOnibusUF.groupby("UF")["TOTAL"]
-    .pct_change() * 100)
-
-
-#%% -------------- Criar gráfico COM TODAS AS REGIÕES
-
 # Somar TOTAL por região e mês
 dfRegiao = (
     dfOnibusUF
@@ -158,33 +250,6 @@ dfRegiao = (
     .reset_index()
 ) 
 
-fig, ax = plt.subplots(figsize=(14,7))
-
-# Plotar cada região
-for regiao in dfRegiao["REGIÃO"].unique():
-
-    dados = dfRegiao[dfRegiao["REGIÃO"] == regiao]
-
-    ax.plot(dados["ANO_MÊS"],dados["TOTAL"],label=regiao)
-    
-    # Configuração do eixo X
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_major_formatter(
-        mdates.DateFormatter('%Y'))
-    
-    # Marquinhas mensais
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
-    #ax.set_yscale("log")
-    # Ajustes visuais
-    plt.xlabel("Ano")
-    plt.ylabel("Total de Ônibus")
-    plt.title("Frota de Ônibus por Região do Brasil")
-    
-    plt.legend(title="Região")
-    
-    plt.grid(True)
-    
-    plt.show()
 # Teste com log
 
 fig, ax = plt.subplots(figsize=(14,7))
@@ -210,61 +275,6 @@ for regiao in dfRegiao["REGIÃO"].unique():
     plt.legend(title="Região")
     
     plt.grid(True)
-    
-    plt.show()
-
-
-#%% -------------- Criar gráfico POR ESTADO
-
-fig, ax = plt.subplots(figsize=(12,6))
-
-for estado in dfOnibusUF["UF"].unique():
-
-    dados_estado = dfOnibusUF[dfOnibusUF["UF"] == estado]
-
-    ax.plot(
-        dados_estado["ANO_MÊS"],
-        dados_estado["TOTAL"],
-        label=estado
-    )
-
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
-    
-    #ax.set_yscale("log")
-    
-    plt.legend()
-    plt.xlabel("Ano")
-    plt.ylabel("Total")
-    plt.title("Frota de Ônibus por Estado")
-    
-    plt.show()
-
-#teste log - Devo ajustar legenda e cores!
-
-fig, ax = plt.subplots(figsize=(12,6))
-
-for estado in dfOnibusUF["UF"].unique():
-
-    dados_estadolog = dfOnibusUF[dfOnibusUF["UF"] == estado]
-
-    ax.plot(
-        dados_estadolog["ANO_MÊS"],
-        dados_estadolog["TOTAL"],
-        label=estado
-    )
-
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
-    
-    ax.set_yscale("log")
-    
-    plt.legend()
-    plt.xlabel("Ano")
-    plt.ylabel("Total")
-    plt.title("Frota de Ônibus por Estado")
     
     plt.show()
 

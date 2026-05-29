@@ -8,38 +8,77 @@ Created on Fri May 15 17:09:28 2026
 
 #%% IMPORTANTO OS PACOTES
 
-#import os
+import os
 import pandas as pd
 import matplotlib.pyplot as plt 
 import matplotlib.dates as mdates
 import seaborn as sns
-from scipy.stats import linregress
+#from scipy.stats import linregress
 import numpy as np
+from scipy.optimize import curve_fit
+from sklearn.metrics import r2_score
+
+
+#%%
+
+# Caminhos para salvar Outputs
+pastaOutputsEletricos = "/home/bruno/Gabriela/Lcqar/outputs/Frota Elétricos/Onibus Eletricos"
+
+# cria a pasta caso não exista
+os.makedirs(pastaOutputsEletricos, exist_ok=True)
 
 #%% -------- MANIPULANDO OS ARQUIVOS
 
 #Caminho e leitura do arquivo
-dfOnibusE = pd.read_csv('/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/VendaOnibusEletricos.csv')
+dfOnibusE = pd.read_csv('/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/VendaOnibusEletricosABVE.csv')
 
-# Transformando em datetime
-dfOnibusE["ANO_MÊS"] = pd.to_datetime(dfOnibusE["ANO_MÊS"].astype(str))
+#Caminho e leitura arquivo ICCT para crescimento anual
+dfICCTOnibusE = pd.read_csv('/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/ICCTVendasOE.csv')
 
-
-# Garantir ordem 
-dfOnibusE = dfOnibusE.sort_values(["MUNICIPIO", "ANO_MÊS"])
-
-# Soma acumulada por município
-dfOnibusE ["SOMA ACUMULADA"] = (
-    dfOnibusE.groupby("MUNICIPIO")["VENDA"]
-    .cumsum())
-
-#print(dfOnibusE["MUNICIPIO"].unique())
-
-# Limpando os nomes que estavam com espaçamento indevido
-dfOnibusE["MUNICIPIO"] = ( dfOnibusE["MUNICIPIO"]
+# Limpeza PRIMEIRO
+dfOnibusE["MUNICIPIO"] = (
+    dfOnibusE["MUNICIPIO"]
     .str.strip()
-    .str.upper())
+    .str.upper()
+)
 
+# Datetime
+dfOnibusE["ANO_MÊS"] = pd.to_datetime(dfOnibusE["ANO_MÊS"])
+
+dfOnibusE["ANO"] = dfOnibusE["ANO_MÊS"].dt.year
+
+# Ordenação
+dfOnibusE = dfOnibusE.sort_values(
+    ["MUNICIPIO", "ANO_MÊS"]
+).reset_index(drop=True)
+
+# Soma acumulada
+dfOnibusE["SOMA ACUMULADA"] = (
+    dfOnibusE.groupby("MUNICIPIO")["VENDA"]
+    .cumsum()
+)
+
+
+
+
+
+# Soma acumulada ICCT
+dfICCTOnibusE["VENDA ACUMULADA"] = (
+    dfICCTOnibusE["VENDAS ONIBUS (ICCT)"]
+    .cumsum()
+)
+
+# TAXA CRESCIMENTO BR DADOS ICCT
+dfICCTOnibusE["CRESCIMENTO (%) - ANO"] = (
+    dfICCTOnibusE["VENDA ACUMULADA"]
+    .pct_change() * 100
+)
+
+# salva o csv dentro dela
+dfICCTOnibusE.to_csv(
+    f"{pastaOutputsEletricos}/Onibus_BR_anual%ICCT.csv",
+    index=False
+)
 
 #%% ----------- PLOT POR MUNICÍPIO COM FROTA ELÉTRICA
 
@@ -82,71 +121,6 @@ plt.legend(
 
 plt.show()
 
-#%%------------ TENDÊNCIA FROTA ELÉTRICOS MENSAL
-
-# COM REGRESSÃO E TAXA COMPOSTA MÉDIA
-RegrMunE = []
-
-for muni in dfOnibusE["MUNICIPIO"].unique():
-
-    eletr_mun = (
-        dfOnibusE[
-            dfOnibusE["MUNICIPIO"] == muni
-        ]
-        .sort_values("ANO_MÊS")
-    )
-
-    serie = eletr_mun["SOMA ACUMULADA"].dropna()
-
-    #x = range(len(serie))
-    x = (
-    eletr_mun["ANO_MÊS"].dt.year * 12
-    + eletr_mun["ANO_MÊS"].dt.month
-)
-    y = serie.values
-
-    regressao = linregress(x, y)
-
-    valor_inicial = y[0]
-    valor_final = y[-1]
-    
- # quantidade de meses do período
-    meses = x.iloc[-1] - x.iloc[0]
-
-    # crescimento percentual médio mensal
-    if valor_inicial > 0 and meses > 0:
-
-        crescimento_mensal = (
-            (
-                valor_final / valor_inicial
-            ) ** (1 / meses) - 1
-        ) * 100
-
-    else:
-
-        crescimento_mensal = np.nan
-
-    uf = eletr_mun["UF"].iloc[0]
-    
-    # RegrMunE.append({
-    #     "Municipio": muni,
-    #     "UF": uf,
-    #     "Tendência (Ônibus/Mês)": regressao.slope,
-    #     "Tendência (% Mês)": slope_percentual,
-    #     "R2": regressao.rvalue**2
-    # })
-
-    RegrMunE.append({
-        "Municipio": muni,
-        "UF": uf,
-        "Tendência (Ônibus/Mês)": regressao.slope,
-        "Crescimento Médio Mensal (%)": crescimento_mensal,
-        #"R²": regressao.rvalue**2
-    })
-#qual a tendência média de crescimento ao longo do período observado daquele município”.
-#crescimento médio de ônibus por mês real.
-dfTrendEMun = pd.DataFrame(RegrMunE)
-
 #%%  ---------- TENDÊNCIA ANUAL FROTA ELÉTRICOS
 
 dfOnibusE["ANO"] = dfOnibusE["ANO_MÊS"].dt.year
@@ -158,6 +132,34 @@ dfOEA = (
     .reset_index()
 )
 
+# anos = range(
+#     dfOEA["ANO"].min(),
+#     dfOEA["ANO"].max() + 1
+# )
+
+# municipios = dfOEA["MUNICIPIO"].unique()
+
+# index_completo = pd.MultiIndex.from_product(
+#     [municipios, anos],
+#     names=["MUNICIPIO", "ANO"]
+# )
+# dfOEA = (
+#     dfOEA
+#     .set_index(["MUNICIPIO", "ANO"])
+#     .reindex(index_completo)
+#     .reset_index()
+# )
+
+
+# dfOEA["VENDA"] = dfOEA["VENDA"].fillna(0)
+
+# # Recolocar UF
+# dfOEA["UF"] = (
+#     dfOEA.groupby("MUNICIPIO")["UF"]
+#     .ffill()
+#     .bfill()
+# )
+
 dfOEA = dfOEA.sort_values(
     ["MUNICIPIO", "ANO"]
 )
@@ -167,59 +169,322 @@ dfOEA["ACUMULADO"] = (
     .cumsum()
 )
 
-dfOEA["CRESCIMENTO (%) - ANO"] = (
-    dfOEA.groupby("MUNICIPIO")["ACUMULADO"]
+# dfOEA["CRESCIMENTO (%) - ANO"] = (
+#     dfOEA.groupby("MUNICIPIO")["ACUMULADO"]
+#     .pct_change() * 100
+# )
+
+# Loop pelos municípios
+for cid in dfOEA["MUNICIPIO"].unique():
+    
+    # Filtra município
+    df_mun = dfOEA[
+        dfOEA["MUNICIPIO"] == cid
+    ]
+    
+    # Pega a UF do município
+    uf = df_mun["UF"].iloc[0]
+    
+    # Cria uma pasta para o estado
+    pastaUF = f"{pastaOutputsEletricos}/{uf}"
+
+    os.makedirs(pastaUF, exist_ok=True)
+
+    # # Filtra os dados do estado
+    # df_estado = dfFrotaConvencionalY[
+    #     dfFrotaConvencionalY["UF"] == uf
+    # ]
+    # Salva o csv dentro da pasta do estado
+    df_mun.to_csv(
+        f"{pastaUF}/Onibus_eletricos%_{cid}.csv",index=False
+    )
+
+# 
+
+dfBrasil = (
+    dfOnibusE
+    .groupby([ "ANO"])["VENDA"]
+    .sum()
+    .reset_index()
+)
+
+dfBrasil["VENDA ACUMULADA"] = (
+    dfBrasil["VENDA"]
+    .cumsum()
+)
+
+#[]	acessar/selecionar
+#()	executar/chamar
+
+dfBrasil["CRESCIMENTO (%) - ANO"] = (
+    dfBrasil["VENDA ACUMULADA"]
     .pct_change() * 100
 )
 
-# COM REGRESSÃO E TAXA COMPOSTA MÉDIA
+df_mun.to_csv(
+     f"{pastaUF}/Onibus_eletricos%_{cid}.csv",index=False
+ )
 
-RegrAnual = []
+# salva o csv dentro dela
+dfBrasil.to_csv(
+    f"{pastaOutputsEletricos}/Onibus_BR_anual%.csv",
+    index=False
+)
 
-for muni in dfOEA["MUNICIPIO"].unique():
+# Estimativa 2033 e 2044
+import sys
 
-    dados = (
-        dfOEA[
-            dfOEA["MUNICIPIO"] == muni
-        ]
-        .sort_values("ANO")
+sys.path.append(
+    "/home/bruno/Gabriela/Lcqar/script/FrotaOnibus"
+)
+from AnaliseFrotaOnibus import projecao_frota_total
+
+
+anos_futuros, proj_log = projecao_frota_total()
+
+# import AnaliseFrotaOnibus
+
+# print(dir(AnaliseFrotaOnibus))
+# # ---------------- CALCULAR K
+Kel = 1397863
+
+# ---------------- PREPARAR DADOS
+
+xe = dfBrasil["ANO"].values
+
+ye = dfBrasil["VENDA ACUMULADA"].values
+
+x0 = xe.min()
+#---------------- FUNÇÃO LOGÍSTICA
+
+def logistico(xe, Kel, r, A):
+
+    return Kel / (
+        1 + A * np.exp(
+            -r * (xe - x0)
+        )
     )
 
-    x = dados["ANO"]
-    y = dados["ACUMULADO"]
+# ---------------- AJUSTE DA CURVA
 
-    regressao = linregress(x, y)
+param_log_eletr, _ = curve_fit(
 
-    valor_inicial = y.iloc[0]
-    valor_final = y.iloc[-1]
+    logistico,
 
-    anos = x.iloc[-1] - x.iloc[0]
+    xe,
+    ye,
 
-    if valor_inicial > 0 and anos > 0:
+    # chute inicial
+    p0=[Kel, 0.03, 10],
+    
+    bounds=(
+        [Kel * 0.90, 0.001, 0],
+        [Kel * 1.10, 5, 100000]
+),
+    # limites dos parâmetros
+    # bounds=(
+    #     [K * 0.95, 0.0001, 0],
+    #     [K * 1.05, 1, 1000]
+    # ),
+    #tentativas até desistir
+    maxfev=20000
+)
 
-        crescimento_anual = (
-            (
-                valor_final / valor_inicial
-            ) ** (1 / anos) - 1
-        ) * 100
+# ---------------- RESULTADOS DO AJUSTE
 
-    else:
+K_fit, r_fit, A_fit = param_log_eletr
 
-        crescimento_anual = np.nan
+print("\nPARÂMETROS AJUSTADOS")
+print("--------------------")
+print("K =", round(K_fit))
+print("r =", r_fit)
+print("A =", A_fit)
 
-    RegrAnual.append({
+# ---------------- AJUSTE NOS DADOS HISTÓRICOS
 
-        "Municipio": muni,
+y_logEle = logistico(
+    xe,
+    *param_log_eletr
+)
 
-        "UF": dados["UF"].iloc[0],
+r2_logEle = r2_score(
+    ye,
+    y_logEle
+)
 
-        "Tendência (Ônibus/Ano)": regressao.slope,
+print("\nR² Logístico:", round(r2_logEle, 4))
 
-        "Crescimento Médio Anual (%)": crescimento_anual,
+#---------------- PROJEÇÃO FUTURA
 
-        #"R²": regressao.rvalue**2
-    })
+anos_futuros_ele = np.arange(
+    xe.min(),
+    2045
+)
 
-dfTrendAnual = pd.DataFrame(RegrAnual)
+proj_log_ele = logistico(
+    anos_futuros_ele,
+    *param_log_eletr
+)
 
-#testar por estado com somatorio agrupado tbm
+#---------------- VALORES ESPECÍFICOS
+
+frota_2033_ele = logistico(
+    2033,
+    *param_log_eletr
+)
+
+frota_2044_ele = logistico(
+    2044,
+    *param_log_eletr
+)
+
+print("\nPROJEÇÕES")
+print("----------")
+print("2033:", round(frota_2033_ele))
+print("2044:", round(frota_2044_ele))
+
+# ---------------- GRÁFICO
+
+# fig, ax = plt.subplots(
+#     figsize=(12,6)
+# )
+
+# # histórico
+# ax.scatter(
+#     xe,
+#     ye,
+#     label="Dados reais"
+# )
+
+# # curva logística
+# ax.plot(
+#     anos_futuros_ele,
+#     proj_log_ele,
+#     linewidth=2,
+#     label="Regressão logística"
+# )
+
+# # linhas verticais
+# ax.axvline(
+#     2033,
+#     linestyle="--"
+# )
+
+# ax.axvline(
+#     2044,
+#     linestyle="--"
+# )
+
+# ax.set_xlabel("Ano")
+
+# ax.set_ylabel("Frota de ônibus")
+
+# ax.set_title(
+#     "Projeção da Frota Convencional"
+# )
+
+# ax.legend()
+
+# ax.grid(True)
+
+# plt.show()
+
+
+fig, ax = plt.subplots(
+    figsize=(12,6)
+)
+
+# ---------------- ELÉTRICOS HISTÓRICOS
+
+ax.scatter(
+    xe,
+    ye,
+    label="Elétricos - Histórico"
+)
+
+# ---------------- ELÉTRICOS PROJETADOS
+
+ax.plot(
+    anos_futuros_ele,
+    proj_log_ele,
+    linewidth=2,
+    label="Elétricos - Logístico"
+)
+
+# ---------------- FROTA TOTAL PROJETADA
+
+ax.plot(
+    anos_futuros,
+    proj_log,
+    linewidth=2,
+    linestyle="--",
+    label="Frota Total Projetada"
+)
+
+# ---------------- LINHAS VERTICAIS
+
+ax.axvline(
+    2033,
+    linestyle=":"
+)
+
+ax.axvline(
+    2044,
+    linestyle=":"
+)
+
+# ---------------- LABELS
+
+ax.set_xlabel("Ano")
+
+ax.set_ylabel("Frota de ônibus")
+
+ax.set_title(
+    "Projeção da Frota Elétrica"
+)
+
+ax.legend()
+
+ax.grid(True)
+
+plt.show()
+
+
+
+# -------------TENDENCIA POR UF ANO
+
+# ÚLTIMO ACUMULADO DE CADA MUNICÍPIO NO ANO
+dfMunicipioAno = (
+    dfOnibusE
+    .sort_values("ANO_MÊS")
+    .groupby(["UF", "MUNICIPIO", "ANO"])["SOMA ACUMULADA"]
+    .last()
+    .reset_index()
+)
+
+# SOMA DOS MUNICÍPIOS POR UF NO ANO
+dfUF = (
+    dfMunicipioAno
+    .groupby(["UF", "ANO"])["SOMA ACUMULADA"]
+    .sum()
+    .reset_index(name="TOTAL_UF")
+)
+
+# VARIAÇÃO ANUAL
+dfUF["VARIAÇÃO (%)"] = (
+    dfUF
+    .groupby("UF")["TOTAL_UF"]
+    .pct_change() * 100
+)
+
+
+dfFrotaEletricosUFY = (
+    dfOnibusE
+    .groupby(["UF", "ANO_MÊS"])["SOMA ACUMULADA"]
+    .last()
+    .reset_index())
+
+dfFrotaEletricosUFY["VARIAÇÂO (%)"] = (dfFrotaEletricosUFY
+                                        .groupby("UF")["TOTAL"]
+    .pct_change() * 100)
+

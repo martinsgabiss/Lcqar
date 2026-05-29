@@ -13,14 +13,18 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-from scipy.stats import linregress
+# from scipy.stats import linregress
 import numpy as np
 import seaborn as sns
+
+from scipy.optimize import curve_fit
+from sklearn.metrics import r2_score
+
 
 #%% Pastas e caminhos
 
 # Caminhos para salvar Outputs
-pastaOutputsConvencional = "/home/bruno/Gabriela/Lcqar/outputs/Frota Elétricos"
+pastaOutputsConvencional = "/home/bruno/Gabriela/Lcqar/outputs/Frota Elétricos/Onibus Convencionais"
 
 # cria a pasta caso não exista
 os.makedirs(pastaOutputsConvencional, exist_ok=True)
@@ -99,6 +103,11 @@ dfOnibusMun['TOTAL'] = dfOnibusMun['MICRO-ONIBUS'] + dfOnibusMun['ONIBUS']
 
 dfOnibusMun = dfOnibusMun.sort_values(["UF", "ANO_MÊS"])
 
+print(sorted(dfOnibusMun['ANO_MÊS'].unique().tolist()))
+
+# df = pd.read_excel(
+#     "/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/2.FrotaPorMunicipio/2015/2015-12/2015-12.xls")
+
 # FROTA POR UF
 
 # Fazendo a efetiva soma da coluna SOMA que junta Onibus com Micro-onibus
@@ -123,6 +132,44 @@ dfOnibusUF["VARIAÇÂO (%)"] = (dfOnibusUF.groupby("UF")["TOTAL"]
     .pct_change() * 100)
 
 
+# verificando pro brasil 
+dfUF_Ano = (
+    dfOnibusUF
+    .groupby(["UF", "ANO"])["TOTAL"]
+    .last()
+    .reset_index()
+)
+
+# Depois: soma das UFs no Brasil
+dfBrasil = (
+    dfUF_Ano
+    .groupby("ANO")["TOTAL"]
+    .sum()
+    .reset_index()
+)
+
+
+# Crescimento percentual anual
+dfBrasil["VARIAÇÃO (%)"] = (
+    dfBrasil["TOTAL"]
+    .pct_change() * 100
+)
+
+fig, ax = plt.subplots(figsize=(10,6))
+
+ax.plot(
+    dfBrasil["ANO"],
+    dfBrasil["TOTAL"],
+    marker="o"
+)
+
+ax.set_xlabel("Ano")
+ax.set_ylabel("N° Ônibus")
+ax.set_title("Frota de Ônibus Convencional - Brasil")
+
+ax.grid(True)
+
+plt.show()
 #%% -------------- FROTA ONIBUS CONVENCIONAL POR ANO E UF
 # dfFrotaConvencionalY = (dfOnibusUF.groupby(
 #     ["UF", "ANO"])["TOTAL"].
@@ -140,15 +187,30 @@ dfFrotaConvencionalY["VARIAÇÂO (%)"] = (dfFrotaConvencionalY
                                         .groupby("UF")["TOTAL"]
     .pct_change() * 100)
 
-
-
 # salva o csv dentro dela
 dfFrotaConvencionalY.to_csv(
     f"{pastaOutputsConvencional}/Onibus_convencional_UF_anual%.csv",
     index=False
 )
 
+# Loop pelos estados
+for uf in dfFrotaConvencionalY["UF"].unique():
 
+    # Cria uma pasta para o estado
+    pastaUF = f"{pastaOutputsConvencional}/{uf}"
+
+    os.makedirs(pastaUF, exist_ok=True)
+
+    # Filtra os dados do estado
+    df_estado = dfFrotaConvencionalY[
+        dfFrotaConvencionalY["UF"] == uf
+    ]
+
+    # Salva o csv dentro da pasta do estado
+    df_estado.to_csv(
+        f"{pastaUF}/Onibus_convencional%_{uf}.csv",index=False
+    )
+        
 #%% -------------- Criar gráfico POR ESTADO
 
 cores_40 = sns.color_palette("tab20", 20) + sns.color_palette("tab20b", 20)
@@ -195,264 +257,189 @@ for i,estado in enumerate(dfOnibusUF["UF"].unique()):
     bbox_inches="tight"
 )
 
+#%% Estimativa BR
 
-#%% -------------- Criar gráfico COM TODAS AS REGIÕES
+dfPop = pd.read_excel('/home/bruno/Gabriela/Lcqar/inputs/FrotaOnibusEletricosBR/ProjeçãoCrescimentoPopulacionalIBGE.xlsx')
 
-# Dicionário completo das regiões
-regioes = {
+# ---------------- JUNTAR FROTA + POPULAÇÃO
 
-    # Norte
-    "AC": "Norte",
-    "AP": "Norte",
-    "AM": "Norte",
-    "PA": "Norte",
-    "RO": "Norte",
-    "RR": "Norte",
-    "TO": "Norte",
+dfProj = pd.merge(
+    dfBrasil,
+    dfPop[["ANO", "POP_T"]],
+    on="ANO",
+    how="inner"
+)
 
-    # Nordeste
-    "AL": "Nordeste",
-    "BA": "Nordeste",
-    "CE": "Nordeste",
-    "MA": "Nordeste",
-    "PB": "Nordeste",
-    "PE": "Nordeste",
-    "PI": "Nordeste",
-    "RN": "Nordeste",
-    "SE": "Nordeste",
+#---------------- CALCULAR ÔNIBUS POR HABITANTE
 
-    # Centro-Oeste
-    "DF": "Centro-Oeste",
-    "GO": "Centro-Oeste",
-    "MT": "Centro-Oeste",
-    "MS": "Centro-Oeste",
+dfProj["ONIBUS_HAB"] = (
+    dfProj["TOTAL"] / dfProj["POP_T"]
+)
 
-    # Sudeste
-    "ES": "Sudeste",
-    "MG": "Sudeste",
-    "RJ": "Sudeste",
-    "SP": "Sudeste",
+# ---------------- MAIOR TAXA HISTÓRICA
+#localiza qual o valor maior dentre os disponíveis
+taxa_max = dfProj["ONIBUS_HAB"].max()
 
-    # Sul
-    "PR": "Sul",
-    "RS": "Sul",
-    "SC": "Sul"
-}
+# ---------------- DEFINIR LIMITE PLAUSÍVEL
 
-# Criar coluna de região e preencher com respectiva região
-dfOnibusUF["REGIÃO"] = dfOnibusUF["UF"].map(regioes)
+# margem de 20% acima da maior taxa histórica
+taxa_limite = taxa_max * 1.20
 
-# Somar TOTAL por região e mês
-dfRegiao = (
-    dfOnibusUF
-    .groupby(["REGIÃO", "ANO_MÊS"])["TOTAL"]
-    .sum()
-    .reset_index()
-) 
 
-# Teste com log
+# ---------------- POPULAÇÃO FUTURA (2044)
 
-fig, ax = plt.subplots(figsize=(14,7))
-for regiao in dfRegiao["REGIÃO"].unique():
+pop_2044 = (
+    dfPop[dfPop["ANO"] == 2044]["POP_T"]
+    .iloc[0]
+)
 
-    dadoslog = dfRegiao[dfRegiao["REGIÃO"] == regiao]
+# ---------------- CALCULAR K
 
-    ax.plot(dadoslog["ANO_MÊS"],dadoslog["TOTAL"],label=regiao)
+K = pop_2044 * taxa_limite
+
+# ---------------- PREPARAR DADOS
+
+x = dfProj["ANO"].values
+
+y = dfProj["TOTAL"].values
+
+x0t = x.min()
+
+def projecao_frota_total():
     
-    # Configuração do eixo X
-    ax.xaxis.set_major_locator(mdates.YearLocator())
-    ax.xaxis.set_major_formatter(
-        mdates.DateFormatter('%Y'))
     
-    # Marquinhas mensais
-    ax.xaxis.set_minor_locator(mdates.MonthLocator())
-    ax.set_yscale("log")
-    # Ajustes visuais
-    plt.xlabel("Ano")
-    plt.ylabel("Total de Ônibus")
-    plt.title("Frota de Ônibus por Região do Brasil")
+    #---------------- FUNÇÃO LOGÍSTICA
     
-    plt.legend(title="Região")
+    def logistico(x, K, r, A):
     
-    plt.grid(True)
-    
-    plt.show()
-
-#%% ---------- Criar gráfico POR REGIÃO
-
-for r in dfOnibusUF["REGIÃO"].unique():
-
-    fig, ax = plt.subplots(figsize=(12,6))
-
-    dadosR = dfOnibusUF[
-        dfOnibusUF["REGIÃO"] == regiao
-    ]
-
-    for estado in dadosR["UF"].unique():
-
-        dadosUF = dadosR[
-            dadosR["UF"] == estado
-        ]
-
-        ax.plot(
-            dadosUF["ANO_MÊS"],
-            dadosUF["TOTAL"],
-            label=estado
-        )
-        #ax.set_yscale("log")
-        
-        ax.set_title(f"Total de Ônibus - {regiao}")
-    
-        ax.xaxis.set_major_locator(mdates.YearLocator())
-        ax.xaxis.set_major_formatter(
-            mdates.DateFormatter('%Y')
-        )
-        ax.xaxis.set_minor_locator(
-            mdates.MonthLocator()
+        return K / (
+            1 + A * np.exp(
+                -r * (x - x0t)
+            )
         )
     
-        ax.legend()
+    # ---------------- AJUSTE DA CURVA
     
-        plt.show()
-
-#%% ---------- Tendência por UF
-
-# Regressão Linear Tendência UF
-Regr = []
-
-for est in dfOnibusUF["UF"].unique():
+    param_log_total, _ = curve_fit(
     
-    dadosEst = (
-        dfOnibusUF[
-            dfOnibusUF["UF"] == est
-        ]
-        .sort_values("ANO_MÊS")
+        logistico,
+    
+        x,
+        y,
+    
+        # chute inicial
+        p0=[K, 0.03, 10],
+    
+        # limites dos parâmetros
+        bounds=(
+            [K * 0.95, 0.0001, 0],
+            [K * 1.05, 1, 1000]
+        ),
+        #tentativas até desistir
+        maxfev=20000
     )
-    # Série temporal do estado
-    serie = dadosEst['TOTAL'].dropna()
-    # Tempo em formato numérico
-    x = range(len(serie))
-
-    # Valores da série
-    y = serie.values
-
-    # Regressão linear
-    regressao = linregress(x, y) #crescimento médio mensal 
-
-    valor_inicial = y[0] #o primeiro mês de dado, no caso jan2021
-
-    valor_final = y[-1]
     
-    meses = len(y) - 1
+    # ---------------- RESULTADOS DO AJUSTE
     
-    if valor_inicial > 0 and meses > 0:
+    K_fit, r_fit, A_fit = param_log_total
     
-        crescimento_mensal = (
-            (
-                valor_final / valor_inicial
-            ) ** (1 / meses) - 1
-        ) * 100
+    print("\nPARÂMETROS AJUSTADOS")
+    print("--------------------")
+    print("K =", round(K_fit))
+    print("r =", r_fit)
+    print("A =", A_fit)
     
-    else:
+    # ---------------- AJUSTE NOS DADOS HISTÓRICOS
     
-        crescimento_mensal = np.nan
-    
-    # slope_percentual = (
-    #     regressao.slope / valor_inicial
-    # ) * 100
-
-    Regr.append({"UF": est,
-        "Tendência (Onibus/Mês)": regressao.slope, #intensidade
-        "Crescimento (% Mês)": crescimento_mensal,
-        #"Pvalor": regressao.pvalue, #tendência significativa? 
-        #"R2": regressao.rvalue**2 #confiabilidade
-        })
-   
-# Criar DataFrame final
-dfTrendRL = pd.DataFrame(Regr)
-
-# --------- VARIAÇÃO ANUAL UF
-
-dfTrendAUF = (
-    dfOnibusUF
-    .sort_values("ANO_MÊS")
-    .groupby(["UF", "ANO"])["TOTAL"]
-    .first()
-    .reset_index()
-)
-
-dfTrendAUF["CRESCIMENTO (%)"] = (
-    dfTrendAUF
-    .groupby("UF")["TOTAL"]
-    .pct_change() * 100
-)
-
-#%% ------- Tendência por município FROTA ONIBUS
-
-# Transformando em datetime a coluna ANO_MES
-dfOnibusMun["ANO_MÊS"] = pd.to_datetime(dfOnibusMun["ANO_MÊS"].astype(str))
-
-RegrMun = []
-
-for mun in dfOnibusMun["MUNICIPIO"].unique():
-
-    dados_mun = (
-        dfOnibusMun[
-            dfOnibusMun["MUNICIPIO"] == mun
-        ]
-        .sort_values("ANO_MÊS")
+    y_log = logistico(
+        x,
+        *param_log_total
     )
-
-    serie = dados_mun["TOTAL"].dropna()
-
-    x = range(len(serie))
-    y = serie.values
-
-    regressao = linregress(x, y)
-
-    valor_inicial = y[0]
-
-    valor_final = y[-1]
     
-    meses = len(y) - 1
+    r2_log = r2_score(
+        y,
+        y_log
+    )
     
-    if valor_inicial > 0 and meses > 0:
+    print("\nR² Logístico:", round(r2_log, 4))
     
-        crescimento_mensal = (
-            (
-                valor_final / valor_inicial
-            ) ** (1 / meses) - 1
-        ) * 100
+    #---------------- PROJEÇÃO FUTURA
     
-    else:
+    anos_futuros = np.arange(
+        x.min(),
+        2045
+    )
     
-        crescimento_mensal = np.nan
+    proj_log = logistico(
+        anos_futuros,
+        *param_log_total
+    )
+    
+    #---------------- VALORES ESPECÍFICOS
+    
+    frota_2033 = logistico(
+        2033,
+        *param_log_total
+    )
+    
+    frota_2044 = logistico(
+        2044,
+        *param_log_total
+    )
+    
+    print("\nPROJEÇÕES")
+    print("----------")
+    print("2033:", round(frota_2033))
+    print("2044:", round(frota_2044))
+    return anos_futuros, proj_log
 
-    # slope_percentual = (
-    #     regressao.slope / valor_inicial
-    # ) * 100
-    
-    uf = dados_mun["UF"].iloc[0]
-    
-    RegrMun.append({
-        "Municipio": mun,
-        "UF": uf,
-        "Tendência (Ônibus/Mês)": regressao.slope,
-        "Crescimento Mensal Médio (%)": crescimento_mensal,
-        "R2": regressao.rvalue**2
-    })
+#projecao_frota_total= anos_futuros,proj_log
+anos_futuros, proj_log= projecao_frota_total()
 
-dfTrendMunicipio = pd.DataFrame(RegrMun)
+# ---------------- GRÁFICO
 
-# TESTE VERIFICAÇÃO SE A SERIE ESTÁ ACUMULANDO - MUNICIPIO ESPECÍFICO
-# Escolher município
-municipio = "ACRELANDIA"
-
-# Filtrar município e ordenar pela data
-serie_mun = (
-    dfOnibusMun[dfOnibusMun["MUNICIPIO"] == municipio]
-    .sort_values("ANO_MÊS")
+fig, ax = plt.subplots(
+    figsize=(12,6)
 )
 
-print(serie_mun)
+# histórico
+ax.scatter(
+    x,
+    y,
+    label="Dados reais"
+)
+
+# curva logística
+ax.plot(
+    anos_futuros,
+    proj_log,
+    linewidth=2,
+    label="Regressão logística"
+)
+
+# linhas verticais
+ax.axvline(
+    2033,
+    linestyle="--"
+)
+
+ax.axvline(
+    2044,
+    linestyle="--"
+)
+
+ax.set_xlabel("Ano")
+
+ax.set_ylabel("Frota de ônibus")
+
+ax.set_title(
+    "Projeção da Frota Convencional"
+)
+
+ax.legend()
+
+ax.grid(True)
+
+plt.show()
+
 

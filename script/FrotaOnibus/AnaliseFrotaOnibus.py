@@ -93,6 +93,11 @@ def carregar_arquivos_frota(pasta, header=0):
 
 dfFrotaMun = carregar_arquivos_frota(pastaTipoFrota)
 
+dfFrotaMun.to_csv(f"{pastaOutputsConvencional}/dfFrotaMun.csv",
+    index=False
+    # encoding="utf-8-sig"
+)
+
 #print(dfFrotaMun.columns)
 
 # Selecionando colunas necessárias

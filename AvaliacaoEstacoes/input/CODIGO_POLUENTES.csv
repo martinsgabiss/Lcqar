@@ -1,0 +1,72 @@
+POLUENTE,COD_POLUENTE,NOME_PASTA,NOME_TEXTO,NOME_TEXTO_HTML
+MP10,1,MP10,$MP_{10}$,MP<sub>10</sub>
+PM10,1,MP10,$MP_{10}$,MP<sub>10</sub>
+Partículas Inaláveis (<10µm),1,MP10,$MP_{10}$,MP<sub>10</sub>
+Particulas Inalaveis (<10µm),1,MP10,$MP_{10}$,MP<sub>10</sub>
+MP25,2,MP25,$MP_{25}$,MP<sub>25</sub>
+MP2.5,2,MP25,$MP_{25}$,MP<sub>25</sub>
+PM25,2,MP25,$MP_{25}$,MP<sub>25</sub>
+PM2.5,2,MP25,$MP_{25}$,MP<sub>25</sub>
+"Partículas Respiráveis (<2,5µm)",2,MP25,$MP_{25}$,MP<sub>25</sub>
+"Particulas Respiraveis (<2,5um)",2,MP25,$MP_{25}$,MP<sub>25</sub>
+SO2,3,SO2,$SO_{2}$,SO<sub>2</sub>
+Dióxido de Enxofre,3,SO2,$SO_{2}$,SO<sub>2</sub>
+Dioxido de Enxofre,3,SO2,$SO_{2}$,SO<sub>2</sub>
+NO2,4,NO2,$NO_{2}$,NO<sub>2</sub>
+Dióxido de Nitrogênio,4,NO2,$NO_{2}$,NO<sub>2</sub>
+Dioxido de Nitrogenio,4,NO2,$NO_{2}$,NO<sub>2</sub>
+O3,5,O3,$O_{3}$,O<sub>3</sub>
+Ozônio,5,O3,$O_{3}$,O<sub>3</sub>
+Ozonio,5,O3,$O_{3}$,O<sub>3</sub>
+FMC,6,FMC,$FMC$,FMC
+FUMACA,6,FMC,$FMC$,FMC
+FUMAÇA,6,FMC,$FMC$,FMC
+CO,7,CO,$CO$,CO
+Monóxido de Carbono,7,CO,$CO$,CO
+Monoxido de Carbono,7,CO,$CO$,CO
+PTS,8,PTS,$PTS$,PTS
+CHUMBO,9,CHUMBO,$Pb$,Pb
+BEN,10,BENZENO,$BEN$,BEN
+BENZ,10,BENZENO,$BEN$,BEN
+BENZENO,10,BENZENO,$BEN$,BEN
+CH4,11,CH4,$CH_{4}$,CH<sub>4</sub>
+Metano,11,CH4,$CH_{4}$,CH<sub>4</sub>
+ERT,12,ERT,$ERT$,ERT
+TRS,12,ERT,$ERT$,ERT
+ETBENZ,13,ETILBENZENO,$ETBEN$,ETBEN
+ETIL BENZ,13,ETILBENZENO,$ETBEN$,ETBEN
+ETILBENZENO,13,ETILBENZENO,$ETBEN$,ETBEN
+H2S,14,H2S,$H_{2}S$,H<sub>2</sub>S
+NH3,15,NH3,$NH_{3}$,NH<sub>3</sub>
+NMH,16,HCNM,$HCNM$,HCNM
+HNM,16,HCNM,$HCNM$,HCNM
+HCNM,16,HCNM,$HCNM$,HCNM
+NCH4,16,HCNM,$HCNM$,HCNM
+NMHC,16,HCNM,$HCNM$,HCNM
+NO,17,NO,$NO$,HCNM
+Monóxido de Nitrogênio,17,NO,$NO$,NO
+Monoxido de Nitrogenio,17,NO,$NO$,NO
+NOX,18,NOX,$NO_{X}$,NO<sub>X</sub>
+Oxidos de Nitrogenio,18,NOX,$NO_{X}$,NO<sub>X</sub>
+Óxidos de Nitrogênio,18,NOX,$NO_{X}$,NO<sub>X</sub>
+"MP1 ",19,"MP1 ",$MP_{1}$,MP<sub>1</sub>
+PM1,19,"MP1 ",$MP_{1}$,MP<sub>1</sub>
+ACETAL,20,ACETAL,"$ACETAL$ ","ACETAL "
+"FORMAL ",21,FORMAL,$CH_{2}O$,CH<sub>2</sub>O
+TOL,22,TOLUENO,$TOL$,TOL
+TOLUENO,22,TOLUENO,$TOL$,TOL
+XIL,23,XILENO,$XIL$,XIL
+XILENO,23,XILENO,$XIL$,XIL
+VOC,24,VOC,$VOC$,VOC
+ORTO XIL,25,OXILENO,$OXIL$,OXIL
+CH3-C6H5-CH3,25,OXILENO,$OXIL$,OXIL
+OX,25,OXILENO,$OXIL$,OXIL
+ORTO_XIL,25,OXILENO,$OXIL$,OXIL
+THC,26,HCT,$HCT$,HCT
+HC,26,HCT,$HCT$,HCT
+HCT,26,HCT,$HCT$,HCT
+Hidrocarbonetos Totais,26,HCT,$HCT$,HCT
+M E P XILENO,27,MPXILENO,$MPXIL$,MPXIL
+MPX,27,MPXILENO,$MPXIL$,MPXIL
+,,,,
+,,,,
